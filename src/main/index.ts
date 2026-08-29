@@ -1,6 +1,7 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import { getDb } from './db'
 import { registerIpcHandlers } from './ipc'
@@ -44,7 +45,7 @@ function createWindow(): void {
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.electron')
+  electronApp.setAppUserModelId('com.paokn.portfolio-tracker')
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
@@ -58,6 +59,17 @@ app.whenReady().then(() => {
   registerIpcHandlers()
 
   createWindow()
+
+  // Auto-Update: prüft beim Start gegen die GitHub Releases des Repos (siehe electron-builder.yml
+  // publish-Konfiguration) und lädt eine neuere Version im Hintergrund herunter; sobald sie fertig
+  // ist, zeigt Electron eine native Benachrichtigung und installiert sie beim nächsten Neustart der
+  // App. Nur in der gepackten App relevant - im Dev-Modus gibt es kein app-update.yml und keinen
+  // sinnvollen Vergleichspunkt.
+  if (!is.dev) {
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+      console.error('Auto-Update-Prüfung fehlgeschlagen:', err)
+    })
+  }
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
