@@ -1,5 +1,6 @@
 import { ipcMain } from 'electron'
 import * as positionsRepo from '../db/positionsRepo'
+import * as snapshotsRepo from '../db/snapshotsRepo'
 import * as yahooService from '../services/yahooService'
 import * as coingeckoService from '../services/coingeckoService'
 import * as priceService from '../services/priceService'
@@ -23,6 +24,15 @@ export function registerPositionsHandlers(): void {
 
   ipcMain.handle('positions:delete', (_event, id: number) => {
     positionsRepo.deletePosition(id)
+  })
+
+  // Löscht wirklich ALLE Positionen (Transaktionen kaskadieren über die FK) UND den kompletten
+  // Snapshot-Verlauf (sonst würde "Vermögen über Zeit" weiter alte, jetzt bedeutungslose reale
+  // Werte zeigen - gleiche Überlegung wie beim "Zurücksetzen"-Button, hier nur zusätzlich mit
+  // Löschen der Positionen selbst).
+  ipcMain.handle('positions:deleteAll', () => {
+    positionsRepo.deleteAllPositions()
+    snapshotsRepo.deleteAllSnapshots()
   })
 
   ipcMain.handle('positions:lookupSymbol', async (_event, assetClass: AssetClass, query: string) => {

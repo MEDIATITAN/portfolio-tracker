@@ -164,6 +164,10 @@ export function deletePosition(id: number): void {
   getDb().prepare('DELETE FROM positions WHERE id = ?').run(id)
 }
 
+export function deleteAllPositions(): void {
+  getDb().prepare('DELETE FROM positions').run()
+}
+
 export function listDistinctIdentifiers(): { identifier: string; assetClass: AssetClass }[] {
   const rows = getDb()
     .prepare(

@@ -115,6 +115,7 @@ export function DashboardPage({ classFilter, onNavigateToPositions }: DashboardP
             assetClassFilter={classFilter}
             hasPositionsInClass={hasPositionsInClass}
             hasAnyPositions={hasAnyPositions}
+            gainLossPercent={gainLoss.percent}
             onAddPosition={onNavigateToPositions}
             expanded={expandedHero === 'time'}
             onToggleExpand={toggleHero('time')}

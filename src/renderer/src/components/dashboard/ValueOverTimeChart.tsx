@@ -27,6 +27,10 @@ interface ValueOverTimeChartProps {
   hasPositionsInClass?: boolean
   /** Ob überhaupt irgendeine Position existiert (unabhängig vom Filter) - dann Button statt Chart. */
   hasAnyPositions: boolean
+  /** Gewinn/Verlust ggü. Einstandspreis in Prozent (wie NetWorthCard) - echte Rendite je Position
+   *  seit deren eigenem Kaufdatum, unabhängig davon wann sie zum Portfolio dazukam. Für "Alle"
+   *  verwendet statt eines reinen Wert-Vergleichs (siehe rangeChangePercent unten). */
+  gainLossPercent: number | null
   onAddPosition: () => void
   expanded?: boolean
   onToggleExpand?: () => void
@@ -47,6 +51,17 @@ const RANGE_LABELS: Record<TimeRange, string> = {
   '6M': '6M',
   YTD: 'YTD',
   ALL: 'Alle'
+}
+
+/** Beschriftung unter der Rendite-Prozentzahl, je gewähltem Zeitraum - statt eines generischen
+ *  "im gewählten Zeitraum" für alle. */
+const RANGE_SUBTITLES: Record<TimeRange, string> = {
+  '1D': 'heute',
+  '1W': 'diese Woche',
+  '1M': 'diesen Monat',
+  '6M': 'letzte 6 Monate',
+  YTD: 'dieses Jahr',
+  ALL: 'seit Kauf'
 }
 
 const RANGE_ORDER: TimeRange[] = ['1D', '1W', '1M', '6M', 'YTD', 'ALL']
@@ -92,6 +107,7 @@ export function ValueOverTimeChart({
   assetClassFilter,
   hasPositionsInClass,
   hasAnyPositions,
+  gainLossPercent,
   onAddPosition,
   expanded = false,
   onToggleExpand
@@ -155,6 +171,25 @@ export function ValueOverTimeChart({
   const rangeChangePercent =
     firstValue !== null && lastValue !== null && firstValue !== 0 ? ((lastValue - firstValue) / firstValue) * 100 : null
 
+  // Ein reiner Wert-Vergleich (erster vs. letzter sichtbarer Punkt) ist nur dann eine sinnvolle
+  // Rendite, wenn sich die Portfolio-Zusammensetzung INNERHALB des gewählten Zeitraums nicht mehr
+  // ändert - sonst misst er faktisch "wie sehr ist das Konto durch neue Käufe gewachsen" statt
+  // "wie gut haben sich die Anlagen entwickelt" (User-Feedback: "Alle" und YTD zeigten >2000%,
+  // weil der Zeitraum-Start vor die meisten Käufe fiel und firstValue dadurch nahezu 0 war).
+  // Deshalb: sobald der jüngste Kauf NACH dem Start des gewählten Zeitraums liegt (die Zusammen-
+  // setzung sich also noch innerhalb des Fensters verändert hat), stattdessen dieselbe
+  // Gewinn/Verlust-vs-Einstandspreis-Rendite wie NetWorthCard zeigen - die ist unabhängig davon,
+  // wann welche Position dazukam. Bei kurzen, aktuellen Zeiträumen (i.d.R. 1T/1W/1M) bleibt der
+  // Wert-Vergleich in Kraft, weil dort typischerweise keine neuen Positionen mehr dazukamen.
+  const positionsWithHistory = positions.filter((p) => p.assetClass !== 'CASH_OTHER' && p.identifier)
+  const latestPurchaseMs =
+    positionsWithHistory.length > 0
+      ? Math.max(...positionsWithHistory.map((p) => new Date(p.purchaseDate ?? p.createdAt).getTime()))
+      : null
+  const useCostBasisReturn = latestPurchaseMs !== null && cutoff <= latestPurchaseMs
+  const displayPercent = useCostBasisReturn ? gainLossPercent : rangeChangePercent
+  const rangeChangeLabel = RANGE_SUBTITLES[range]
+
   return (
     <div
       onClick={onToggleExpand}
@@ -165,14 +200,12 @@ export function ValueOverTimeChart({
       <div className="mb-2 flex items-start justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Vermögen über Zeit</h3>
-          {rangeChangePercent !== null && (
+          {displayPercent !== null && (
             <p
-              className={`text-lg font-bold ${rangeChangePercent < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}
+              className={`text-lg font-bold ${displayPercent < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}
             >
-              {formatPercent(rangeChangePercent)}{' '}
-              <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
-                im gewählten Zeitraum
-              </span>
+              {formatPercent(displayPercent)}{' '}
+              <span className="text-xs font-normal text-slate-400 dark:text-slate-500">{rangeChangeLabel}</span>
             </p>
           )}
         </div>

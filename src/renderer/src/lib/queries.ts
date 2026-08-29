@@ -38,6 +38,21 @@ export function useDeletePosition() {
   })
 }
 
+export function useDeleteAllPositions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.positions.deleteAll(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['positions'] })
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['snapshots'] })
+      queryClient.invalidateQueries({ queryKey: ['historical'] })
+      queryClient.invalidateQueries({ queryKey: ['priceCache'] })
+      queryClient.invalidateQueries({ queryKey: ['fxRates'] })
+    }
+  })
+}
+
 export function usePriceCache() {
   return useQuery({ queryKey: ['priceCache'], queryFn: () => api.prices.getAll() })
 }

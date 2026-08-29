@@ -160,6 +160,7 @@ export interface PortfolioApi {
     create(input: NewPosition): Promise<Position>
     update(input: PositionUpdate): Promise<Position>
     delete(id: number): Promise<void>
+    deleteAll(): Promise<void>
     lookupSymbol(assetClass: AssetClass, query: string): Promise<SymbolSearchResult[]>
     getAssetProfile(identifier: string): Promise<AssetProfile>
   }

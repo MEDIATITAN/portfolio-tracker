@@ -16,6 +16,7 @@ const api: PortfolioApi = {
     create: (input: NewPosition) => ipcRenderer.invoke('positions:create', input),
     update: (input: PositionUpdate) => ipcRenderer.invoke('positions:update', input),
     delete: (id: number) => ipcRenderer.invoke('positions:delete', id),
+    deleteAll: () => ipcRenderer.invoke('positions:deleteAll'),
     lookupSymbol: (assetClass: AssetClass, query: string) =>
       ipcRenderer.invoke('positions:lookupSymbol', assetClass, query),
     getAssetProfile: (identifier: string) => ipcRenderer.invoke('positions:getAssetProfile', identifier)
