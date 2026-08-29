@@ -25,9 +25,12 @@ export interface Position {
   notes: string | null
   createdAt: string
   updatedAt: string
+  /** True, wenn diese Position Buchungen im Transaktions-Ledger hat - dann werden quantity/
+   *  avgCostBasis daraus berechnet (siehe ledgerService.ts) statt manuell im Formular gepflegt. */
+  hasTransactions: boolean
 }
 
-export type NewPosition = Omit<Position, 'id' | 'createdAt' | 'updatedAt'>
+export type NewPosition = Omit<Position, 'id' | 'createdAt' | 'updatedAt' | 'hasTransactions'>
 export type PositionUpdate = Partial<NewPosition> & { id: number }
 
 export interface PriceCacheEntry {
@@ -113,6 +116,44 @@ export interface ResetProgressEvent {
   status: 'processing' | 'done'
 }
 
+export type TransactionType = 'BUY' | 'SELL'
+
+export interface Transaction {
+  id: number
+  positionId: number
+  type: TransactionType
+  quantity: number
+  price: number
+  currency: string
+  /** Ausführungsdatum, 'YYYY-MM-DD'. */
+  date: string
+  /** Herkunft, z.B. 'FINANZEN_ZERO' bei CSV-Import, null bei manueller Erfassung/Migration. */
+  broker: string | null
+  notes: string | null
+  createdAt: string
+}
+
+export interface TransactionWithPosition extends Transaction {
+  positionName: string
+  assetClass: AssetClass
+}
+
+/** Von diesem Broker unterstützte CSV-Exportformate - je eins pro implementiertem Parser. */
+export type BrokerFormat = 'FINANZEN_ZERO'
+
+export interface CsvImportProgressEvent {
+  rowIndex: number
+  totalRows: number
+  name: string
+  status: 'resolving' | 'matched' | 'unresolved'
+}
+
+export interface CsvImportResult {
+  transactionsImported: number
+  positionsAffected: number
+  unresolved: { name: string; isin: string }[]
+}
+
 export interface PortfolioApi {
   positions: {
     list(): Promise<Position[]>
@@ -140,5 +181,10 @@ export interface PortfolioApi {
   }
   historical: {
     list(): Promise<HistoricalData>
+  }
+  transactions: {
+    list(): Promise<TransactionWithPosition[]>
+    importCsv(broker: BrokerFormat, csvText: string): Promise<CsvImportResult>
+    onImportProgress(callback: (event: CsvImportProgressEvent) => void): () => void
   }
 }

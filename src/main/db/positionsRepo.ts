@@ -28,7 +28,10 @@ interface PositionRow {
   notes: string | null
   created_at: string
   updated_at: string
+  has_transactions: number
 }
+
+const SELECT_POSITION = `SELECT *, (SELECT COUNT(*) FROM transactions WHERE position_id = positions.id) as has_transactions FROM positions`
 
 function rowToPosition(row: PositionRow): Position {
   return {
@@ -49,7 +52,8 @@ function rowToPosition(row: PositionRow): Position {
     purchaseDate: row.purchase_date,
     notes: row.notes,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    hasTransactions: row.has_transactions > 0
   }
 }
 
@@ -67,13 +71,13 @@ function pick<K extends keyof NewPosition>(
 
 export function listPositions(): Position[] {
   const rows = getDb()
-    .prepare('SELECT * FROM positions ORDER BY asset_class, name')
+    .prepare(`${SELECT_POSITION} ORDER BY asset_class, name`)
     .all() as unknown as PositionRow[]
   return rows.map(rowToPosition)
 }
 
 export function getPositionById(id: number): Position {
-  const row = getDb().prepare('SELECT * FROM positions WHERE id = ?').get(id) as unknown as
+  const row = getDb().prepare(`${SELECT_POSITION} WHERE id = ?`).get(id) as unknown as
     | PositionRow
     | undefined
   if (!row) throw new Error(`Position ${id} nicht gefunden`)

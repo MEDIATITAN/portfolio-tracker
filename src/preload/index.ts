@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AssetClass, NewPosition, PortfolioApi, PositionUpdate, ResetProgressEvent, Settings } from '../shared/types'
+import type {
+  AssetClass,
+  BrokerFormat,
+  CsvImportProgressEvent,
+  NewPosition,
+  PortfolioApi,
+  PositionUpdate,
+  ResetProgressEvent,
+  Settings
+} from '../shared/types'
 
 const api: PortfolioApi = {
   positions: {
@@ -33,6 +42,15 @@ const api: PortfolioApi = {
   },
   historical: {
     list: () => ipcRenderer.invoke('historical:list')
+  },
+  transactions: {
+    list: () => ipcRenderer.invoke('transactions:list'),
+    importCsv: (broker: BrokerFormat, csvText: string) => ipcRenderer.invoke('transactions:importCsv', broker, csvText),
+    onImportProgress: (callback: (event: CsvImportProgressEvent) => void) => {
+      const listener = (_: unknown, payload: CsvImportProgressEvent) => callback(payload)
+      ipcRenderer.on('transactions:import-progress', listener)
+      return () => ipcRenderer.removeListener('transactions:import-progress', listener)
+    }
   }
 }
 

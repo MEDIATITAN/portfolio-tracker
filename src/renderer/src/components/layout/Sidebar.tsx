@@ -9,6 +9,7 @@ interface SidebarProps {
   classFilter: ClassFilter
   onNavigateDashboard: (filter: ClassFilter) => void
   onNavigatePositions: () => void
+  onNavigateTransactions: () => void
 }
 
 const ASSET_CLASSES: AssetClass[] = ['STOCK_ETF', 'CRYPTO', 'COMMODITY', 'CASH_OTHER']
@@ -37,6 +38,24 @@ function ListIcon(): React.JSX.Element {
   )
 }
 
+function HistoryIcon(): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4 shrink-0"
+    >
+      <path d="M4 4v4h4" />
+      <path d="M4.5 12a6.5 6.5 0 1 0 1.6-5.7L4 8.5" />
+      <path d="M10 7v4l3 2" />
+    </svg>
+  )
+}
+
 function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
   return (
     <svg
@@ -53,7 +72,13 @@ function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
   )
 }
 
-export function Sidebar({ page, classFilter, onNavigateDashboard, onNavigatePositions }: SidebarProps): React.JSX.Element {
+export function Sidebar({
+  page,
+  classFilter,
+  onNavigateDashboard,
+  onNavigatePositions,
+  onNavigateTransactions
+}: SidebarProps): React.JSX.Element {
   const [assetClassesOpen, setAssetClassesOpen] = useState(true)
   const { theme, toggleTheme } = useTheme()
   const dashboardActive = page === 'dashboard' && classFilter === 'ALL'
@@ -115,6 +140,17 @@ export function Sidebar({ page, classFilter, onNavigateDashboard, onNavigatePosi
         >
           <ListIcon />
           <span>Positionen</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onNavigateTransactions}
+          className={`mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
+            page === 'transactions' ? 'bg-blue-500/15 text-blue-400' : 'text-slate-300 hover:bg-slate-800'
+          }`}
+        >
+          <HistoryIcon />
+          <span>Verlauf</span>
         </button>
       </nav>
       <div className="border-t border-slate-800 px-2 py-3">

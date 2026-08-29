@@ -3,6 +3,7 @@ import type { NewPosition, Position, ResetProgressEvent } from '@shared/types'
 import { PositionForm } from '../components/positions/PositionForm'
 import { PositionsTable } from '../components/positions/PositionsTable'
 import { ResetProgressPanel, type ResetEntry } from '../components/positions/ResetProgressPanel'
+import { CsvImportPanel } from '../components/positions/CsvImportPanel'
 import { RefreshButton } from '../components/common/RefreshButton'
 import { LastUpdatedBadge } from '../components/common/LastUpdatedBadge'
 import { shouldAutoRefresh } from '../lib/autoRefresh'
@@ -147,6 +148,8 @@ export function PositionsPage(): React.JSX.Element {
           )}
         </div>
       </header>
+
+      <CsvImportPanel />
 
       {resetPhase !== 'idle' && (
         <ResetProgressPanel

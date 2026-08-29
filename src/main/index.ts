@@ -5,6 +5,7 @@ import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import { getDb } from './db'
 import { registerIpcHandlers } from './ipc'
+import { migrateExistingPositionsToTransactions } from './services/ledgerService'
 
 function createWindow(): void {
   // Create the browser window.
@@ -56,6 +57,7 @@ app.whenReady().then(() => {
 
   // DB-Schema initialisieren, bevor IPC-Handler registriert werden, die darauf zugreifen.
   getDb()
+  migrateExistingPositionsToTransactions()
   registerIpcHandlers()
 
   createWindow()

@@ -75,6 +75,21 @@ CREATE TABLE IF NOT EXISTS settings (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS transactions (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  position_id     INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+  type            TEXT NOT NULL CHECK (type IN ('BUY','SELL')),
+  quantity        REAL NOT NULL,
+  price           REAL NOT NULL,
+  currency        TEXT NOT NULL,
+  date            TEXT NOT NULL,
+  broker          TEXT,
+  notes           TEXT,
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_transactions_position_id ON transactions(position_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
 `
 
 export const SEED_SETTINGS: Record<string, string> = {

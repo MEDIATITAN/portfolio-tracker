@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
-import type { AssetClass, NewPosition, PositionUpdate } from '@shared/types'
+import type { AssetClass, BrokerFormat, NewPosition, PositionUpdate } from '@shared/types'
 
 export function usePositions() {
   return useQuery({ queryKey: ['positions'], queryFn: () => api.positions.list() })
@@ -73,6 +73,25 @@ export function useResetSnapshots() {
       queryClient.invalidateQueries({ queryKey: ['historical'] })
       queryClient.invalidateQueries({ queryKey: ['priceCache'] })
       queryClient.invalidateQueries({ queryKey: ['fxRates'] })
+    }
+  })
+}
+
+export function useTransactions() {
+  return useQuery({ queryKey: ['transactions'], queryFn: () => api.transactions.list() })
+}
+
+export function useImportCsv() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ broker, csvText }: { broker: BrokerFormat; csvText: string }) => api.transactions.importCsv(broker, csvText),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['positions'] })
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['historical'] })
+      queryClient.invalidateQueries({ queryKey: ['priceCache'] })
+      queryClient.invalidateQueries({ queryKey: ['fxRates'] })
+      queryClient.invalidateQueries({ queryKey: ['snapshots'] })
     }
   })
 }

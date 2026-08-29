@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { DashboardPage } from './pages/DashboardPage'
 import { PositionsPage } from './pages/PositionsPage'
+import { TransactionsPage } from './pages/TransactionsPage'
 import { Sidebar } from './components/layout/Sidebar'
 import { ThemeProvider } from './lib/ThemeContext'
 import type { ClassFilter, Page } from './lib/navigation'
@@ -32,13 +33,14 @@ function AppShell(): React.JSX.Element {
           setClassFilter(filter)
         }}
         onNavigatePositions={() => setPage('positions')}
+        onNavigateTransactions={() => setPage('transactions')}
       />
       <main className="min-w-0 flex-1 overflow-y-auto">
-        {page === 'dashboard' ? (
+        {page === 'dashboard' && (
           <DashboardPage classFilter={classFilter} onNavigateToPositions={() => setPage('positions')} />
-        ) : (
-          <PositionsPage />
         )}
+        {page === 'positions' && <PositionsPage />}
+        {page === 'transactions' && <TransactionsPage />}
       </main>
     </div>
   )

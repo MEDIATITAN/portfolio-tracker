@@ -62,7 +62,13 @@ export function buildDailyHistoricalSeries(
     if (quote === 'EUR') return 1
     const series = fxByQuote.get(quote)
     const point = series ? lastOnOrBefore(series, day) : null
-    return point?.rate ?? null
+    // historical_fx_rates speichert base=EUR/quote=<Fremdwährung> (z.B. "1 EUR = 1.1652 USD") -
+    // um einen Preis IN der Fremdwährung nach EUR umzurechnen, muss man DURCH den Kurs teilen,
+    // nicht damit multiplizieren (genau wie findFxRate() es für die Live-Kurse macht). War ein
+    // echter Bug: Positionen in Fremdwährung wurden dadurch überbewertet, und zwar umso mehr, je
+    // weiter der Kurs von 1 entfernt ist (bei DKK/HKD mit Kursen um 7-9 entsprechend drastisch).
+    if (!point || point.rate === 0) return null
+    return 1 / point.rate
   }
 
   const starts = relevant.map((p) => ({ position: p, startDay: toDayKey(p.purchaseDate ?? p.createdAt) }))

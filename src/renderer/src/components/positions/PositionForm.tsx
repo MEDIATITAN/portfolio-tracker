@@ -75,6 +75,10 @@ export function PositionForm({
 
   const isCashOther = form.assetClass === 'CASH_OTHER'
   const isCommodity = form.assetClass === 'COMMODITY'
+  // Bestand/Einstandspreis werden aus dem Transaktions-Ledger berechnet (siehe ledgerService.ts),
+  // sobald eine Position Buchungen hat (CSV-Import oder migrierter Altbestand) - dann sind diese
+  // Felder nur noch Anzeige, keine manuelle Eingabe mehr.
+  const isLedgerBacked = initial?.hasTransactions ?? false
 
   function update<K extends keyof NewPosition>(key: K, value: NewPosition[K]): void {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -217,7 +221,7 @@ export function PositionForm({
 
       {!isCashOther && (
         <label className={labelClass}>
-          Menge
+          Menge{isLedgerBacked && ' (aus Verlauf berechnet)'}
           <div className="flex gap-2">
             <input
               type="number"
@@ -225,6 +229,7 @@ export function PositionForm({
               className={`${inputClass} flex-1`}
               value={form.quantity}
               onChange={(e) => update('quantity', Number(e.target.value))}
+              disabled={isLedgerBacked}
               required
             />
             {isWeighableCommodity && commodityPricing && (
@@ -271,16 +276,22 @@ export function PositionForm({
 
       {!isCashOther && (
         <label className={labelClass}>
-          Einstandspreis (optional, pro{' '}
-          {commodityPricing ? QUANTITY_UNIT_LABELS[form.quantityUnit ?? commodityPricing] : 'Stück'})
+          Einstandspreis{isLedgerBacked ? ' (aus Verlauf berechnet)' : ' (optional)'}, pro{' '}
+          {commodityPricing ? QUANTITY_UNIT_LABELS[form.quantityUnit ?? commodityPricing] : 'Stück'}
           <input
             type="number"
             step="any"
             className={inputClass}
             value={form.avgCostBasis ?? ''}
             onChange={(e) => update('avgCostBasis', e.target.value ? Number(e.target.value) : null)}
+            disabled={isLedgerBacked}
           />
         </label>
+      )}
+      {isLedgerBacked && (
+        <p className="col-span-2 -mt-2 text-xs text-slate-400 dark:text-slate-500">
+          Diese Position hat Buchungen im Verlauf - Menge und Einstandspreis werden automatisch daraus berechnet.
+        </p>
       )}
 
       <label className={labelClass}>
