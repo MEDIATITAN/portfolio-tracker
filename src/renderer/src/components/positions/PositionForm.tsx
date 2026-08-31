@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { AssetClass, CashSubType, NewPosition, Position, QuantityUnit, SymbolSearchResult } from '@shared/types'
+import type {
+  AssetClass,
+  CashSubType,
+  NewPosition,
+  Position,
+  QuantityUnit,
+  SymbolSearchResult
+} from '@shared/types'
 import { COMMODITY_PRESETS, commodityPricingUnit } from '@shared/commodities'
 import { ASSET_CLASS_LABELS, CASH_SUB_TYPE_LABELS } from '../../lib/format'
 import { inputClass, labelClass } from './formStyles'
@@ -28,6 +35,7 @@ function emptyForm(): NewPosition {
     name: '',
     symbol: null,
     identifier: null,
+    isin: null,
     quantity: 1,
     quantityUnit: null,
     currency: 'EUR',
@@ -48,6 +56,7 @@ function toNewPosition(position: Position): NewPosition {
     name: position.name,
     symbol: position.symbol,
     identifier: position.identifier,
+    isin: position.isin,
     quantity: position.quantity,
     quantityUnit: position.quantityUnit,
     currency: position.currency,
@@ -107,12 +116,18 @@ export function PositionForm({
     if (result.securityType === 'STOCK') {
       const requestedIdentifier = result.identifier
       window.api.positions.getAssetProfile(requestedIdentifier).then((profile) => {
-        setForm((prev) => (prev.identifier === requestedIdentifier ? { ...prev, ...profile } : prev))
+        setForm((prev) =>
+          prev.identifier === requestedIdentifier ? { ...prev, ...profile } : prev
+        )
       })
     }
   }
 
-  function handleCommodityPreset(preset: { identifier: string; name: string; pricingUnit: QuantityUnit | null }): void {
+  function handleCommodityPreset(preset: {
+    identifier: string
+    name: string
+    pricingUnit: QuantityUnit | null
+  }): void {
     setForm((prev) => ({
       ...prev,
       symbol: preset.identifier,
@@ -125,7 +140,9 @@ export function PositionForm({
   const commodityPricing = isCommodity ? commodityPricingUnit(form.identifier) : null
   const isWeighableCommodity = commodityPricing !== null
   const availableUnits: QuantityUnit[] = commodityPricing
-    ? (['GRAM', 'KG', commodityPricing].filter((u, i, arr) => arr.indexOf(u) === i) as QuantityUnit[])
+    ? (['GRAM', 'KG', commodityPricing].filter(
+        (u, i, arr) => arr.indexOf(u) === i
+      ) as QuantityUnit[])
     : []
 
   function handleSubmit(e: React.FormEvent): void {
@@ -173,8 +190,29 @@ export function PositionForm({
             value={form.symbol ?? ''}
             onChangeText={handleSymbolText}
             onSelect={handleSymbolSelect}
-            placeholder={form.assetClass === 'CRYPTO' ? 'z.B. Bitcoin, Ethereum…' : 'z.B. Apple, SAP, oder WKN…'}
+            placeholder={
+              form.assetClass === 'CRYPTO'
+                ? 'z.B. Bitcoin, Ethereum…'
+                : 'z.B. Apple, SAP, oder WKN…'
+            }
           />
+        </label>
+      )}
+
+      {form.assetClass === 'STOCK_ETF' && form.securityType === 'ETF' && (
+        <label className={labelClass}>
+          ISIN
+          <input
+            className={inputClass}
+            value={form.isin ?? ''}
+            onChange={(e) => setForm((f) => ({ ...f, isin: e.target.value.trim() || null }))}
+            placeholder="wird automatisch ermittelt"
+          />
+          <span className="mt-1 block text-xs font-normal text-slate-500 dark:text-slate-400">
+            Bestimmt die Länderaufteilung des Fonds. Wird beim Kursabruf automatisch gesucht - hier
+            prüfen und bei Bedarf korrigieren (thesaurierend und ausschüttend haben unterschiedliche
+            ISINs).
+          </span>
         </label>
       )}
 
@@ -290,7 +328,8 @@ export function PositionForm({
       )}
       {isLedgerBacked && (
         <p className="col-span-2 -mt-2 text-xs text-slate-400 dark:text-slate-500">
-          Diese Position hat Buchungen im Verlauf - Menge und Einstandspreis werden automatisch daraus berechnet.
+          Diese Position hat Buchungen im Verlauf - Menge und Einstandspreis werden automatisch
+          daraus berechnet.
         </p>
       )}
 

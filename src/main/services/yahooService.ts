@@ -89,6 +89,40 @@ export async function getHistoricalPrices(identifier: string, fromDate: string):
   return out
 }
 
+export interface TopHoldings {
+  /** Sektorgewichte des Fonds, 0..1, summieren auf ~1 (vollständige Angabe von Yahoo). */
+  sectorWeightings: { sector: string; weight: number }[]
+  /** Nur die größten Einzelpositionen (Yahoo liefert i.d.R. 10) - deckt NICHT den ganzen Fonds ab. */
+  holdings: { symbol: string; weight: number }[]
+}
+
+/** Fondszusammensetzung; null wenn das Papier kein Fonds ist (z.B. Einzelaktie oder physischer ETC). */
+export async function getTopHoldings(identifier: string): Promise<TopHoldings | null> {
+  try {
+    const summary = await yahooFinance.quoteSummary(identifier, { modules: ['topHoldings'] })
+    const th = summary.topHoldings
+    if (!th) return null
+
+    // sectorWeightings kommt als Array einzelner Objekte mit je EINEM Schlüssel: [{technology: 0.37}, ...]
+    const sectorWeightings: { sector: string; weight: number }[] = []
+    for (const entry of th.sectorWeightings ?? []) {
+      for (const [sector, weight] of Object.entries(entry as Record<string, number>)) {
+        if (typeof weight === 'number') sectorWeightings.push({ sector, weight })
+      }
+    }
+
+    const holdings: { symbol: string; weight: number }[] = []
+    for (const h of th.holdings ?? []) {
+      if (h.symbol && typeof h.holdingPercent === 'number') holdings.push({ symbol: h.symbol, weight: h.holdingPercent })
+    }
+
+    if (sectorWeightings.length === 0 && holdings.length === 0) return null
+    return { sectorWeightings, holdings }
+  } catch {
+    return null
+  }
+}
+
 /** Zusätzlicher Call NUR beim Auswählen eines Suchergebnisses (nicht bei jedem Tastendruck) - liefert Sektor/Land. */
 export async function getAssetProfile(
   identifier: string

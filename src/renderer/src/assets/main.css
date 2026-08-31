@@ -6,3 +6,15 @@ body {
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Recharts markiert das Chart-SVG als fokussierbar (accessibilityLayer ist in v3 standardmäßig an
+   und setzt tabIndex=0 - siehe recharts/lib/container/RootSurface.js). Beim Anklicken eines
+   Diagramms bekommt es dadurch den Fokus und Chromium zeichnet seinen System-Fokusrahmen darum,
+   unter Windows in der Akzentfarbe des Nutzers (z.B. orange). Da die Diagramme hier per Maus
+   angeklickt werden und die Karte selbst das eigentliche Bedienelement ist, wird dieser Rahmen
+   entfernt. */
+.recharts-wrapper:focus,
+.recharts-surface:focus,
+.recharts-wrapper svg:focus {
+  outline: none;
+}

@@ -4,6 +4,7 @@ import * as fxRepo from '../db/fxRepo'
 import * as snapshotsRepo from '../db/snapshotsRepo'
 import * as settingsRepo from '../db/settingsRepo'
 import * as historicalRepo from '../db/historicalRepo'
+import * as etfCompositionService from './etfCompositionService'
 import * as yahooService from './yahooService'
 import * as coingeckoService from './coingeckoService'
 import * as fxService from './fxService'
@@ -102,6 +103,18 @@ export async function refreshAll(): Promise<RefreshResult> {
     }
   }
 
+  // Fondszusammensetzung + Einstufung physischer Rohstoff-ETCs pflegen. Beides ist intern
+  // gecacht/idempotent (Zusammensetzung max. wöchentlich, Umstufung nur solange Kandidaten übrig
+  // sind), läuft hier also im Normalfall ohne zusätzliche Netzwerklast mit.
+  try {
+    await etfCompositionService.reclassifyCommodityEtcs()
+    for (const position of positionsRepo.listPositions()) {
+      await etfCompositionService.ensureComposition(position)
+    }
+  } catch (err) {
+    console.error('ETF-Zusammensetzung konnte nicht aktualisiert werden:', err)
+  }
+
   // Snapshot des Gesamtwerts + Aufteilung je Anlageklasse schreiben - aber nur, wenn überhaupt
   // Positionen existieren. Ein Snapshot mit Wert 0 bei (temporär) leerem Portfolio (z.B. während
   // eine Position gelöscht und direkt danach neu angelegt wird) wäre kein echter historischer
@@ -111,7 +124,9 @@ export async function refreshAll(): Promise<RefreshResult> {
   if (positions.length > 0) {
     const freshPriceCache = priceCacheRepo.listPriceCache()
     const freshFxRates = fxRepo.listFxRates()
-    const values = computeAllPositionValues(positions, freshPriceCache, freshFxRates)
+    // Bewusst neu einlesen: die Umstufung oben kann Anlageklassen geändert haben, und der Snapshot
+    // speichert die Aufteilung JE ANLAGEKLASSE - mit der alten Liste wäre sie sofort veraltet.
+    const values = computeAllPositionValues(positionsRepo.listPositions(), freshPriceCache, freshFxRates)
     const totalValueEur = sumTotalEur(values)
     const byAssetClass = sumByAssetClass(values)
     const items: SnapshotItem[] = (Object.entries(byAssetClass) as [AssetClass, number][]).map(

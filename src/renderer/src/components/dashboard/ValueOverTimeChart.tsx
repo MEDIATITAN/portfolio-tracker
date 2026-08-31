@@ -10,7 +10,14 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import type { AssetClass, FxRate, HistoricalFxEntry, HistoricalPriceEntry, Position, ValueSnapshot } from '@shared/types'
+import type {
+  AssetClass,
+  FxRate,
+  HistoricalFxEntry,
+  HistoricalPriceEntry,
+  Position,
+  ValueSnapshot
+} from '@shared/types'
 import { formatEur, formatPercent } from '../../lib/format'
 import { useTheme } from '../../lib/ThemeContext'
 import { buildDailyHistoricalSeries } from '../../lib/historicalSeries'
@@ -88,9 +95,33 @@ function rangeStart(range: TimeRange): number {
 function formatAxisDate(iso: string, range: TimeRange): string {
   const date = new Date(iso)
   if (range === '1D' || range === '1W') {
-    return date.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    return date.toLocaleString('de-DE', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
   }
   return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+/**
+ * Y-Achse an die im gewählten Zeitraum tatsächlich vorkommenden Werte anpassen.
+ *
+ * Recharts' Standard-Domain ist [0, 'auto'] (defaultNumericDomain in axisSelectors.js), die Achse
+ * beginnt also immer bei null. Bei einem Tages- oder Wochenausschnitt, in dem sich das Vermögen um
+ * ein paar Euro bewegt, presst das die gesamte Bewegung in eine scheinbar flache Linie am oberen
+ * Rand. Da die Domain hier fest vorgegeben ist, verwendet Recharts getTickValuesFixedDomain und
+ * verteilt die Beschriftungen INNERHALB dieser Grenzen, statt sie nach außen aufzurunden.
+ */
+function valueDomain([dataMin, dataMax]: readonly [number, number]): [number, number] {
+  const span = dataMax - dataMin
+  // Ohne Rand lägen Hoch- und Tiefpunkt exakt auf der Diagrammkante. Ist die Linie völlig flach
+  // (nur ein Punkt im Zeitraum), muss eine künstliche Spanne her - eine null hohe Achse könnte
+  // Recharts nicht bemaßen.
+  const pad = span > 0 ? span * 0.08 : Math.max(Math.abs(dataMax) * 0.02, 1)
+  // Negatives Vermögen gibt es nicht, die untere Grenze bleibt bei null.
+  return [Math.max(0, dataMin - pad), dataMax + pad]
 }
 
 function snapshotValue(snapshot: ValueSnapshot, assetClassFilter?: AssetClass | 'ALL'): number {
@@ -140,7 +171,10 @@ export function ValueOverTimeChart({
   // wurde dadurch immer derselbe (erste) Punkt der Gruppe angezeigt, obwohl die Linie zwischen
   // echten, unterschiedlichen Werten verläuft. Mit einer numerischen Achse ist jeder Zeitstempel
   // eindeutig positioniert.
-  const realPoints = filtered.map((s) => ({ timestamp: new Date(s.takenAt).getTime(), value: snapshotValue(s, assetClassFilter) }))
+  const realPoints = filtered.map((s) => ({
+    timestamp: new Date(s.takenAt).getTime(),
+    value: snapshotValue(s, assetClassFilter)
+  }))
 
   // Zwei getrennte Datenreihen (gestrichelt/durchgezogen) statt einer: der erste echte Punkt
   // bekommt bewusst BEIDE Werte, damit sich gestrichelte und durchgezogene Linie optisch berühren.
@@ -152,7 +186,12 @@ export function ValueOverTimeChart({
     })),
     ...realPoints.map((p, i) => ({
       timestamp: p.timestamp,
-      syntheticValue: i === 0 && historicalPoints.length > 0 && historicalPoints[historicalPoints.length - 1].isEstimate ? p.value : null,
+      syntheticValue:
+        i === 0 &&
+        historicalPoints.length > 0 &&
+        historicalPoints[historicalPoints.length - 1].isEstimate
+          ? p.value
+          : null,
       realValue: p.value
     }))
   ]
@@ -162,14 +201,17 @@ export function ValueOverTimeChart({
   // Signal von außen) - NICHT anhand der Chart-Werte selbst raten (frühere Version hat z.B. bei
   // Aktien&ETFs faelschlich "leer" gemeldet, weil je nach Zeitraum zufällig nur Nullpunkte drin
   // waren, obwohl echte Positionen existieren).
-  const isFilteredAndEmpty = assetClassFilter && assetClassFilter !== 'ALL' && hasPositionsInClass === false
+  const isFilteredAndEmpty =
+    assetClassFilter && assetClassFilter !== 'ALL' && hasPositionsInClass === false
 
   const first = data[0]
   const last = data[data.length - 1]
   const firstValue = first ? (first.syntheticValue ?? first.realValue) : null
   const lastValue = last ? (last.realValue ?? last.syntheticValue) : null
   const rangeChangePercent =
-    firstValue !== null && lastValue !== null && firstValue !== 0 ? ((lastValue - firstValue) / firstValue) * 100 : null
+    firstValue !== null && lastValue !== null && firstValue !== 0
+      ? ((lastValue - firstValue) / firstValue) * 100
+      : null
 
   // Ein reiner Wert-Vergleich (erster vs. letzter sichtbarer Punkt) ist nur dann eine sinnvolle
   // Rendite, wenn sich die Portfolio-Zusammensetzung INNERHALB des gewählten Zeitraums nicht mehr
@@ -181,10 +223,14 @@ export function ValueOverTimeChart({
   // Gewinn/Verlust-vs-Einstandspreis-Rendite wie NetWorthCard zeigen - die ist unabhängig davon,
   // wann welche Position dazukam. Bei kurzen, aktuellen Zeiträumen (i.d.R. 1T/1W/1M) bleibt der
   // Wert-Vergleich in Kraft, weil dort typischerweise keine neuen Positionen mehr dazukamen.
-  const positionsWithHistory = positions.filter((p) => p.assetClass !== 'CASH_OTHER' && p.identifier)
+  const positionsWithHistory = positions.filter(
+    (p) => p.assetClass !== 'CASH_OTHER' && p.identifier
+  )
   const latestPurchaseMs =
     positionsWithHistory.length > 0
-      ? Math.max(...positionsWithHistory.map((p) => new Date(p.purchaseDate ?? p.createdAt).getTime()))
+      ? Math.max(
+          ...positionsWithHistory.map((p) => new Date(p.purchaseDate ?? p.createdAt).getTime())
+        )
       : null
   const useCostBasisReturn = latestPurchaseMs !== null && cutoff <= latestPurchaseMs
   const displayPercent = useCostBasisReturn ? gainLossPercent : rangeChangePercent
@@ -193,19 +239,23 @@ export function ValueOverTimeChart({
   return (
     <div
       onClick={onToggleExpand}
-      className={`rounded-lg border bg-white p-4 shadow-sm transition-all duration-300 dark:bg-slate-900 ${
+      className={`rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-all duration-300 dark:border-slate-700 dark:bg-slate-900 ${
         onToggleExpand ? 'cursor-pointer' : ''
-      } ${expanded ? 'border-slate-400 ring-2 ring-slate-200 dark:border-slate-500 dark:ring-slate-700' : 'border-slate-200 dark:border-slate-700'}`}
+      }`}
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Vermögen über Zeit</h3>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+            Vermögen über Zeit
+          </h3>
           {displayPercent !== null && (
             <p
               className={`text-lg font-bold ${displayPercent < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}
             >
               {formatPercent(displayPercent)}{' '}
-              <span className="text-xs font-normal text-slate-400 dark:text-slate-500">{rangeChangeLabel}</span>
+              <span className="text-xs font-normal text-slate-400 dark:text-slate-500">
+                {rangeChangeLabel}
+              </span>
             </p>
           )}
         </div>
@@ -230,7 +280,9 @@ export function ValueOverTimeChart({
       </div>
       {!hasAnyPositions ? (
         <div className="flex flex-col items-center justify-center gap-3 py-16">
-          <p className="text-sm text-slate-400 dark:text-slate-500">Noch keine Positionen erfasst.</p>
+          <p className="text-sm text-slate-400 dark:text-slate-500">
+            Noch keine Positionen erfasst.
+          </p>
           <button
             type="button"
             onClick={(e) => {
@@ -254,9 +306,17 @@ export function ValueOverTimeChart({
         </p>
       ) : (
         <>
-          <ResponsiveContainer width="100%" height={expanded ? 400 : 240} className="transition-all duration-300">
+          <ResponsiveContainer
+            width="100%"
+            height={expanded ? 400 : 240}
+            className="transition-all duration-300"
+          >
             <LineChart data={data} margin={{ top: 24, right: 70, left: 0, bottom: 0 }}>
-              <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
+              <CartesianGrid
+                vertical={false}
+                strokeDasharray="3 3"
+                stroke={isDark ? '#334155' : '#e2e8f0'}
+              />
               <XAxis
                 dataKey="timestamp"
                 type="number"
@@ -268,6 +328,7 @@ export function ValueOverTimeChart({
                 stroke={isDark ? '#94a3b8' : '#64748b'}
               />
               <YAxis
+                domain={valueDomain}
                 fontSize={12}
                 tickFormatter={(v: number) => formatEur(v)}
                 width={90}
@@ -276,11 +337,13 @@ export function ValueOverTimeChart({
                 stroke={isDark ? '#94a3b8' : '#64748b'}
               />
               <Tooltip
-                formatter={(value, name) => [
-                  formatEur(typeof value === 'number' ? value : null),
-                  name === 'syntheticValue' ? 'Geschätzt (Einstandspreis)' : 'Getrackt'
-                ]}
-                labelFormatter={(ts) => (typeof ts === 'number' ? formatAxisDate(new Date(ts).toISOString(), range) : '')}
+                // Nur den Betrag zeigen, ohne Bezeichnung davor. null (nicht '') als Name ist
+                // wichtig: Recharts blendet Name UND Trennzeichen nur dann aus, wenn der Name
+                // weder Zahl noch String ist - bei '' bliebe ein " : " stehen.
+                formatter={(value) => [formatEur(typeof value === 'number' ? value : null), null]}
+                labelFormatter={(ts) =>
+                  typeof ts === 'number' ? formatAxisDate(new Date(ts).toISOString(), range) : ''
+                }
                 contentStyle={{
                   backgroundColor: isDark ? '#1e293b' : '#ffffff',
                   borderColor: isDark ? '#475569' : '#e2e8f0',
@@ -331,7 +394,8 @@ export function ValueOverTimeChart({
           </ResponsiveContainer>
           {hasEstimatedPortion && (
             <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-              Gestrichelt = geschätzt anhand deines Einstandspreises (keine echten historischen Kurse für diesen Zeitraum verfügbar).
+              Gestrichelt = geschätzt anhand deines Einstandspreises (keine echten historischen
+              Kurse für diesen Zeitraum verfügbar).
             </p>
           )}
         </>

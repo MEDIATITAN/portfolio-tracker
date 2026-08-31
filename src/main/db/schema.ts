@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS positions (
   name            TEXT NOT NULL,
   symbol          TEXT,
   identifier      TEXT,
+  isin            TEXT,
   quantity        REAL NOT NULL DEFAULT 1,
   quantity_unit   TEXT CHECK (quantity_unit IN ('GRAM','KG','TROY_OUNCE')),
   currency        TEXT NOT NULL DEFAULT 'EUR',
@@ -75,6 +76,16 @@ CREATE TABLE IF NOT EXISTS settings (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS etf_composition (
+  identifier  TEXT NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('SECTOR','COUNTRY')),
+  label       TEXT NOT NULL,
+  weight      REAL NOT NULL,
+  fetched_at  TEXT NOT NULL,
+  PRIMARY KEY (identifier, kind, label)
+);
+CREATE INDEX IF NOT EXISTS idx_etf_composition_identifier ON etf_composition(identifier);
 
 CREATE TABLE IF NOT EXISTS transactions (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,

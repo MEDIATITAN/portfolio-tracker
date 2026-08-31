@@ -69,6 +69,23 @@ export function useHistoricalData() {
   return useQuery({ queryKey: ['historical'], queryFn: () => api.historical.list() })
 }
 
+export function useEtfComposition() {
+  return useQuery({ queryKey: ['etfComposition'], queryFn: () => api.etfComposition.list() })
+}
+
+/**
+ * Kurse zu den aktuellen Suchtreffern. Bewusst als EIGENE Abfrage nach der Suche, nicht in einem
+ * Rutsch: der Kursabruf dauert rund eine Sekunde, die Vorschlagsliste soll aber sofort erscheinen.
+ */
+export function useSearchQuotes(assetClass: AssetClass, identifiers: string[]) {
+  return useQuery({
+    queryKey: ['searchQuotes', assetClass, identifiers.join(',')],
+    queryFn: () => api.prices.getQuotes(assetClass, identifiers),
+    enabled: identifiers.length > 0,
+    staleTime: 60_000
+  })
+}
+
 export function useSymbolSearch(assetClass: AssetClass, query: string) {
   const trimmed = query.trim()
   return useQuery({
@@ -119,6 +136,9 @@ export function useRefreshPrices() {
       queryClient.invalidateQueries({ queryKey: ['priceCache'] })
       queryClient.invalidateQueries({ queryKey: ['fxRates'] })
       queryClient.invalidateQueries({ queryKey: ['snapshots'] })
+      // refreshAll pflegt nebenbei Fondszusammensetzung + Anlageklassen-Einstufung mit.
+      queryClient.invalidateQueries({ queryKey: ['etfComposition'] })
+      queryClient.invalidateQueries({ queryKey: ['positions'] })
     }
   })
 }

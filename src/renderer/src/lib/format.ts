@@ -8,6 +8,17 @@ export function formatEur(value: number | null | undefined): string {
   return eurFormatter.format(value)
 }
 
+/** Betrag in beliebiger Notierungswährung (z.B. USD bei US-Aktien) - im Gegensatz zu formatEur. */
+export function formatMoney(value: number | null | undefined, currency: string): string {
+  if (value === null || value === undefined) return '–'
+  try {
+    return new Intl.NumberFormat('de-DE', { style: 'currency', currency }).format(value)
+  } catch {
+    // Unbekannter Währungscode: lieber Zahl + Code zeigen als gar nichts.
+    return `${numberFormatter.format(value)} ${currency}`
+  }
+}
+
 export function formatNumber(value: number | null | undefined): string {
   if (value === null || value === undefined) return '–'
   return numberFormatter.format(value)

@@ -16,6 +16,7 @@ interface PositionRow {
   name: string
   symbol: string | null
   identifier: string | null
+  isin: string | null
   quantity: number
   quantity_unit: QuantityUnit | null
   currency: string
@@ -41,6 +42,7 @@ function rowToPosition(row: PositionRow): Position {
     name: row.name,
     symbol: row.symbol,
     identifier: row.identifier,
+    isin: row.isin,
     quantity: row.quantity,
     quantityUnit: row.quantity_unit,
     currency: row.currency,
@@ -78,8 +80,7 @@ export function listPositions(): Position[] {
 
 export function getPositionById(id: number): Position {
   const row = getDb().prepare(`${SELECT_POSITION} WHERE id = ?`).get(id) as unknown as
-    | PositionRow
-    | undefined
+    PositionRow | undefined
   if (!row) throw new Error(`Position ${id} nicht gefunden`)
   return rowToPosition(row)
 }
@@ -88,8 +89,8 @@ export function createPosition(input: NewPosition): Position {
   const result = getDb()
     .prepare(
       `INSERT INTO positions
-        (asset_class, security_type, name, symbol, identifier, quantity, quantity_unit, currency, avg_cost_basis, manual_value, sector, region, sub_type, purchase_date, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (asset_class, security_type, name, symbol, identifier, isin, quantity, quantity_unit, currency, avg_cost_basis, manual_value, sector, region, sub_type, purchase_date, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.assetClass,
@@ -97,6 +98,7 @@ export function createPosition(input: NewPosition): Position {
       input.name,
       input.symbol,
       input.identifier,
+      input.isin,
       input.quantity,
       input.quantityUnit,
       input.currency,
@@ -119,6 +121,7 @@ export function updatePosition(input: PositionUpdate): Position {
     name: pick(input, existing, 'name'),
     symbol: pick(input, existing, 'symbol'),
     identifier: pick(input, existing, 'identifier'),
+    isin: pick(input, existing, 'isin'),
     quantity: pick(input, existing, 'quantity'),
     quantityUnit: pick(input, existing, 'quantityUnit'),
     currency: pick(input, existing, 'currency'),
@@ -133,7 +136,7 @@ export function updatePosition(input: PositionUpdate): Position {
   getDb()
     .prepare(
       `UPDATE positions SET
-        asset_class = ?, security_type = ?, name = ?, symbol = ?, identifier = ?,
+        asset_class = ?, security_type = ?, name = ?, symbol = ?, identifier = ?, isin = ?,
         quantity = ?, quantity_unit = ?, currency = ?, avg_cost_basis = ?, manual_value = ?,
         sector = ?, region = ?, sub_type = ?, purchase_date = ?, notes = ?,
         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
@@ -145,6 +148,7 @@ export function updatePosition(input: PositionUpdate): Position {
       merged.name,
       merged.symbol,
       merged.identifier,
+      merged.isin,
       merged.quantity,
       merged.quantityUnit,
       merged.currency,

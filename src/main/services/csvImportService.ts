@@ -5,83 +5,13 @@ import * as wknService from './wknService'
 import * as ledgerService from './ledgerService'
 import * as priceService from './priceService'
 import { resolveToTicker } from './openFigiService'
-import type { BrokerFormat, CsvImportProgressEvent, CsvImportResult, SymbolSearchResult, TransactionType } from '../../shared/types'
-
-interface ParsedTransactionRow {
-  name: string
-  isin: string
-  wkn: string
-  type: TransactionType
-  quantity: number
-  price: number
-  currency: string
-  date: string
-}
-
-/** Deutsches Zahlenformat: Punkt = Tausendertrenner, Komma = Dezimaltrennzeichen (z.B. "1.844,00"). */
-function parseGermanNumber(raw: string): number | null {
-  const trimmed = raw.trim()
-  if (trimmed === '') return null
-  const value = Number(trimmed.replace(/\./g, '').replace(',', '.'))
-  return Number.isNaN(value) ? null : value
-}
-
-function parseGermanDate(raw: string): string {
-  const [d, m, y] = raw.trim().split('.')
-  return `${y}-${m}-${d}`
-}
-
-/**
- * finanzen.net Zero Orderübersicht-Export: Semikolon-getrennt, deutsches Zahlen-/Datumsformat, mit
- * UTF-8-BOM am Dateianfang (Windows-Export-typisch - muss vor dem Parsen entfernt werden, sonst
- * bricht der Spaltenname der ersten Spalte "Name" -> "﻿Name" und jede Zeilen-Lookup schlägt
- * fehl). Live an einer echten Beispieldatei verifiziert, nicht geraten.
- */
-function parseFinanzenZeroCsv(csvText: string): ParsedTransactionRow[] {
-  const text = csvText.replace(/^﻿/, '')
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '')
-  if (lines.length === 0) return []
-
-  const header = lines[0].split(';')
-  const col = (name: string): number => header.indexOf(name)
-  const iName = col('Name')
-  const iIsin = col('ISIN')
-  const iWkn = col('WKN')
-  const iStatus = col('Status')
-  const iRichtung = col('Richtung')
-  const iAusfDatum = col('Ausführung Datum')
-  const iAusfKurs = col('Ausführung Kurs')
-  const iAnzahlAusgefuehrt = col('Anzahl ausgeführt')
-
-  if ([iName, iIsin, iWkn, iStatus, iRichtung, iAusfDatum, iAusfKurs, iAnzahlAusgefuehrt].some((i) => i === -1)) {
-    throw new Error('CSV-Format nicht erkannt - erwartete Spalten von finanzen.net Zero fehlen.')
-  }
-
-  const out: ParsedTransactionRow[] = []
-  for (const line of lines.slice(1)) {
-    const cols = line.split(';')
-    if (cols[iStatus] !== 'ausgeführt') continue
-    const quantity = parseGermanNumber(cols[iAnzahlAusgefuehrt])
-    const price = parseGermanNumber(cols[iAusfKurs])
-    if (quantity === null || price === null || quantity <= 0) continue
-    out.push({
-      name: cols[iName],
-      isin: cols[iIsin],
-      wkn: cols[iWkn],
-      type: cols[iRichtung] === 'Kauf' ? 'BUY' : 'SELL',
-      quantity,
-      price,
-      currency: 'EUR',
-      date: parseGermanDate(cols[iAusfDatum])
-    })
-  }
-  return out
-}
-
-function parseCsv(broker: BrokerFormat, csvText: string): ParsedTransactionRow[] {
-  if (broker === 'FINANZEN_ZERO') return parseFinanzenZeroCsv(csvText)
-  throw new Error(`Unbekanntes Broker-Format: ${broker}`)
-}
+import { parseBrokerCsv, type ParsedTransactionRow } from './csvFormats'
+import type {
+  BrokerFormat,
+  CsvImportProgressEvent,
+  CsvImportResult,
+  SymbolSearchResult
+} from '../../shared/types'
 
 /**
  * Löst ISIN/WKN/Name in einen Yahoo-Identifier auf - dieselbe Verkettung wie beim WKN-Suchfeld,
@@ -90,7 +20,11 @@ function parseCsv(broker: BrokerFormat, csvText: string): ParsedTransactionRow[]
  * WKN-Umweg. Nicht auflösbar sind i.d.R. Hebelprodukte/Zertifikate, die Yahoo nicht als
  * EQUITY/ETF führt - das ist erwartetes Verhalten, keine fehlerhafte Suche.
  */
-async function resolveSecurity(isin: string, wkn: string, name: string): Promise<SymbolSearchResult | null> {
+async function resolveSecurity(
+  isin: string,
+  wkn: string,
+  name: string
+): Promise<SymbolSearchResult | null> {
   const direct = await yahooService.searchSymbols(isin, 'STOCK_ETF')
   if (direct.length > 0) return direct[0]
 
@@ -119,7 +53,7 @@ export async function importCsv(
   csvText: string,
   onProgress: (event: CsvImportProgressEvent) => void
 ): Promise<CsvImportResult> {
-  const rows = parseCsv(broker, csvText)
+  const rows = parseBrokerCsv(csvText)
   const uniqueSecurities = [...new Map(rows.map((r) => [r.isin, r])).values()]
 
   const resolvedByIsin = new Map<string, SymbolSearchResult | null>()
@@ -127,11 +61,21 @@ export async function importCsv(
 
   for (let i = 0; i < uniqueSecurities.length; i++) {
     const sec = uniqueSecurities[i]
-    onProgress({ rowIndex: i, totalRows: uniqueSecurities.length, name: sec.name, status: 'resolving' })
+    onProgress({
+      rowIndex: i,
+      totalRows: uniqueSecurities.length,
+      name: sec.name,
+      status: 'resolving'
+    })
     const result = await resolveSecurity(sec.isin, sec.wkn, sec.name)
     resolvedByIsin.set(sec.isin, result)
     if (!result) unresolved.push({ name: sec.name, isin: sec.isin })
-    onProgress({ rowIndex: i, totalRows: uniqueSecurities.length, name: sec.name, status: result ? 'matched' : 'unresolved' })
+    onProgress({
+      rowIndex: i,
+      totalRows: uniqueSecurities.length,
+      name: sec.name,
+      status: result ? 'matched' : 'unresolved'
+    })
   }
 
   // Nach aufgelöstem Identifier gruppieren (mehrere ISINs könnten theoretisch auf denselben
@@ -147,7 +91,9 @@ export async function importCsv(
     else groups.set(key, { resolved, rows: [row] })
   }
 
-  const existingByIdentifier = new Map(positionsRepo.listPositions().map((p) => [p.identifier, p] as const))
+  const existingByIdentifier = new Map(
+    positionsRepo.listPositions().map((p) => [p.identifier, p] as const)
+  )
   let transactionsImported = 0
   const affectedPositionIds: number[] = []
 
@@ -162,6 +108,9 @@ export async function importCsv(
         name: group.resolved.name,
         symbol: group.resolved.symbol,
         identifier,
+        // Die ISIN aus der Broker-Datei ist die verlässlichste Quelle, die wir je bekommen -
+        // eindeutig und ohne Namensraterei. Sie wird für die ETF-Länderaufteilung gebraucht.
+        isin: sortedRows[0].isin,
         quantity: 0,
         quantityUnit: null,
         currency: sortedRows[0].currency,
@@ -175,8 +124,15 @@ export async function importCsv(
       })
       if (group.resolved.securityType === 'STOCK') {
         const profile = await yahooService.getAssetProfile(identifier)
-        positionsRepo.updatePosition({ id: position.id, sector: profile.sector, region: profile.region })
+        positionsRepo.updatePosition({
+          id: position.id,
+          sector: profile.sector,
+          region: profile.region
+        })
       }
+    } else if (!position.isin && sortedRows[0].isin) {
+      // Bestandsposition aus der Zeit vor der ISIN-Spalte: aus der Datei nachtragen.
+      position = positionsRepo.updatePosition({ id: position.id, isin: sortedRows[0].isin })
     }
 
     for (const row of sortedRows) {

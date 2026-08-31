@@ -12,6 +12,9 @@ export interface Position {
   name: string
   symbol: string | null
   identifier: string | null
+  /** Wertpapierkennnummer nach ISO 6166 - eindeutig je Tranche und damit der Schlüssel, mit dem die
+   *  Länderaufteilung eines ETFs bei onvista abgefragt wird. */
+  isin: string | null
   quantity: number
   quantityUnit: QuantityUnit | null
   currency: string
@@ -89,6 +92,13 @@ export interface AssetProfile {
   region: string | null
 }
 
+/** Aktueller Kurs eines Wertpapiers in seiner Notierungswährung - für die Kursanzeige in der Suche. */
+export interface SymbolQuote {
+  identifier: string
+  price: number
+  currency: string
+}
+
 export interface HistoricalPriceEntry {
   identifier: string
   assetClass: AssetClass
@@ -116,6 +126,17 @@ export interface ResetProgressEvent {
   status: 'processing' | 'done'
 }
 
+export type EtfCompositionKind = 'SECTOR' | 'COUNTRY'
+
+/** Ein Bestandteil eines ETFs: entweder ein Sektor- oder ein Länderanteil (weight 0..1 am Fondsvermögen). */
+export interface EtfCompositionEntry {
+  identifier: string
+  kind: EtfCompositionKind
+  label: string
+  weight: number
+  fetchedAt: string
+}
+
 export type TransactionType = 'BUY' | 'SELL'
 
 export interface Transaction {
@@ -138,8 +159,9 @@ export interface TransactionWithPosition extends Transaction {
   assetClass: AssetClass
 }
 
-/** Von diesem Broker unterstützte CSV-Exportformate - je eins pro implementiertem Parser. */
-export type BrokerFormat = 'FINANZEN_ZERO'
+/** Herkunftsvermerk für importierte Buchungen. Das Einlesen selbst läuft über die Kopfzeile der
+ *  Datei (siehe csvFormats.ts), nicht über diese Auswahl. */
+export type BrokerFormat = 'AUTO' | 'FINANZEN_ZERO' | 'TRADE_REPUBLIC' | 'SCALABLE_CAPITAL'
 
 export interface CsvImportProgressEvent {
   rowIndex: number
@@ -167,6 +189,8 @@ export interface PortfolioApi {
   prices: {
     refreshAll(): Promise<RefreshResult>
     getAll(): Promise<PriceCacheEntry[]>
+    /** Live-Kurse für beliebige Identifier - für die Kursanzeige in den Suchvorschlägen. */
+    getQuotes(assetClass: AssetClass, identifiers: string[]): Promise<SymbolQuote[]>
   }
   fx: {
     getAll(): Promise<FxRate[]>
@@ -182,6 +206,9 @@ export interface PortfolioApi {
   }
   historical: {
     list(): Promise<HistoricalData>
+  }
+  etfComposition: {
+    list(): Promise<EtfCompositionEntry[]>
   }
   transactions: {
     list(): Promise<TransactionWithPosition[]>

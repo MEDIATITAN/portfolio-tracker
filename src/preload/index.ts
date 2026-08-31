@@ -23,7 +23,9 @@ const api: PortfolioApi = {
   },
   prices: {
     refreshAll: () => ipcRenderer.invoke('prices:refreshAll'),
-    getAll: () => ipcRenderer.invoke('prices:getAll')
+    getAll: () => ipcRenderer.invoke('prices:getAll'),
+    getQuotes: (assetClass: AssetClass, identifiers: string[]) =>
+      ipcRenderer.invoke('prices:getQuotes', assetClass, identifiers)
   },
   fx: {
     getAll: () => ipcRenderer.invoke('fx:getAll')
@@ -43,6 +45,9 @@ const api: PortfolioApi = {
   },
   historical: {
     list: () => ipcRenderer.invoke('historical:list')
+  },
+  etfComposition: {
+    list: () => ipcRenderer.invoke('etfComposition:list')
   },
   transactions: {
     list: () => ipcRenderer.invoke('transactions:list'),

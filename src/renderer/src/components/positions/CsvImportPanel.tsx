@@ -8,12 +8,19 @@ interface ResolveEntry {
   status: 'resolving' | 'matched' | 'unresolved'
 }
 
-const BROKER_OPTIONS: { value: BrokerFormat; label: string }[] = [{ value: 'FINANZEN_ZERO', label: 'finanzen.net Zero' }]
+/** Nur Herkunftsvermerk für die importierten Buchungen: welches Format vorliegt, erkennt der
+ *  Import selbst an der Kopfzeile der Datei (siehe csvFormats.ts). */
+const BROKER_OPTIONS: { value: BrokerFormat; label: string }[] = [
+  { value: 'AUTO', label: 'Broker automatisch erkennen' },
+  { value: 'FINANZEN_ZERO', label: 'finanzen.net Zero' },
+  { value: 'TRADE_REPUBLIC', label: 'Trade Republic' },
+  { value: 'SCALABLE_CAPITAL', label: 'Scalable Capital' }
+]
 
 type Phase = 'idle' | 'importing' | 'done' | 'fading'
 
 export function CsvImportPanel(): React.JSX.Element {
-  const [broker, setBroker] = useState<BrokerFormat>('FINANZEN_ZERO')
+  const [broker, setBroker] = useState<BrokerFormat>('AUTO')
   const [phase, setPhase] = useState<Phase>('idle')
   const [entries, setEntries] = useState<Map<number, ResolveEntry>>(new Map())
   const [result, setResult] = useState<CsvImportResult | null>(null)
@@ -105,7 +112,13 @@ export function CsvImportPanel(): React.JSX.Element {
           >
             CSV importieren
           </button>
-          <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleFileChange} />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={handleFileChange}
+          />
         </div>
       )}
 
@@ -117,19 +130,30 @@ export function CsvImportPanel(): React.JSX.Element {
         >
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-              {error ? 'Import fehlgeschlagen' : phase === 'importing' ? 'CSV wird importiert…' : 'Import abgeschlossen'}
+              {error
+                ? 'Import fehlgeschlagen'
+                : phase === 'importing'
+                  ? 'CSV wird importiert…'
+                  : 'Import abgeschlossen'}
             </h3>
             {!error && phase !== 'importing' && (
-              <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Fertig ✓</span>
+              <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                Fertig ✓
+              </span>
             )}
           </div>
 
-          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {/* whitespace-pre-line: die Formatfehler-Meldung listet die gefundenen Spalten auf einer
+              eigenen Zeile - ohne das würde der Umbruch verschluckt. */}
+          {error && (
+            <p className="text-sm whitespace-pre-line text-red-600 dark:text-red-400">{error}</p>
+          )}
 
           {result && !error && (
             <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">
-              {result.transactionsImported} Transaktion{result.transactionsImported === 1 ? '' : 'en'} aus{' '}
-              {result.positionsAffected} Position{result.positionsAffected === 1 ? '' : 'en'} importiert.
+              {result.transactionsImported} Transaktion
+              {result.transactionsImported === 1 ? '' : 'en'} aus {result.positionsAffected}{' '}
+              Position{result.positionsAffected === 1 ? '' : 'en'} importiert.
             </p>
           )}
 
@@ -151,7 +175,10 @@ export function CsvImportPanel(): React.JSX.Element {
                     ) : entry.status === 'matched' ? (
                       <span className="shrink-0 text-emerald-600 dark:text-emerald-400">✓</span>
                     ) : (
-                      <span className="shrink-0 text-amber-600 dark:text-amber-500" title="Nicht automatisch zugeordnet">
+                      <span
+                        className="shrink-0 text-amber-600 dark:text-amber-500"
+                        title="Nicht automatisch zugeordnet"
+                      >
                         ?
                       </span>
                     )}
@@ -163,9 +190,10 @@ export function CsvImportPanel(): React.JSX.Element {
           {result && result.unresolved.length > 0 && (
             <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">
               <p className="text-xs text-amber-600 dark:text-amber-500">
-                {result.unresolved.length} Wertpapier{result.unresolved.length === 1 ? '' : 'e'} konnte
-                {result.unresolved.length === 1 ? '' : 'n'} nicht automatisch zugeordnet werden (z.B.
-                Hebelprodukte/Zertifikate) - bitte bei Bedarf manuell anlegen:
+                {result.unresolved.length} Wertpapier{result.unresolved.length === 1 ? '' : 'e'}{' '}
+                konnte
+                {result.unresolved.length === 1 ? '' : 'n'} nicht automatisch zugeordnet werden
+                (z.B. Hebelprodukte/Zertifikate) - bitte bei Bedarf manuell anlegen:
               </p>
               <ul className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 {result.unresolved.map((u) => (

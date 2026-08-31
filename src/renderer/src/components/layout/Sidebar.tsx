@@ -9,6 +9,7 @@ interface SidebarProps {
   classFilter: ClassFilter
   onNavigateDashboard: (filter: ClassFilter) => void
   onNavigatePositions: () => void
+  onNavigatePnl: () => void
   onNavigateTransactions: () => void
 }
 
@@ -34,6 +35,23 @@ function ListIcon(): React.JSX.Element {
       className="h-4 w-4 shrink-0"
     >
       <path d="M4 6h12M4 10h12M4 14h8" />
+    </svg>
+  )
+}
+
+function PnlIcon(): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4 shrink-0"
+    >
+      <path d="M3 13l4-4 3 3 6-6" />
+      <path d="M12 6h4v4" />
     </svg>
   )
 }
@@ -77,6 +95,7 @@ export function Sidebar({
   classFilter,
   onNavigateDashboard,
   onNavigatePositions,
+  onNavigatePnl,
   onNavigateTransactions
 }: SidebarProps): React.JSX.Element {
   const [assetClassesOpen, setAssetClassesOpen] = useState(true)
@@ -140,6 +159,17 @@ export function Sidebar({
         >
           <ListIcon />
           <span>Positionen</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onNavigatePnl}
+          className={`mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
+            page === 'pnl' ? 'bg-blue-500/15 text-blue-400' : 'text-slate-300 hover:bg-slate-800'
+          }`}
+        >
+          <PnlIcon />
+          <span>Gewinn &amp; Verlust</span>
         </button>
 
         <button
