@@ -19,6 +19,14 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  # Universal statt nur arm64: GitHubs Mac-Rechner laufen auf Apple Silicon, ohne diese Angabe
+  # entstünde ein reiner arm64-Build, der auf älteren Intel-Macs gar nicht startet. Universal
+  # enthält beide Architekturen - etwa doppelt so groß, dafür läuft es auf jedem Mac.
+  target:
+    - target: dmg
+      arch: [universal]
+    - target: zip
+      arch: [universal]
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
