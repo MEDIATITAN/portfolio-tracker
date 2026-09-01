@@ -1,0 +1,42 @@
+name: macOS-Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Abhaengigkeiten installieren
+        run: npm ci
+
+      - name: Bauen
+        run: npm run build
+
+      - name: Installer paketieren
+        run: npx electron-builder --mac --publish never
+
+      - name: Ergebnis auflisten
+        run: ls -la dist
+
+      - name: Artefakte bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-installer
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 14
