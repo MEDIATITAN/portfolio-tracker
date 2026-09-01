@@ -8,6 +8,7 @@ import type {
   SymbolSearchResult
 } from '@shared/types'
 import { COMMODITY_PRESETS, commodityPricingUnit } from '@shared/commodities'
+import { CURRENCY_ORDER, SUPPORTED_CURRENCIES } from '@shared/currencies'
 import { ASSET_CLASS_LABELS, CASH_SUB_TYPE_LABELS } from '../../lib/format'
 import { inputClass, labelClass } from './formStyles'
 import { SymbolSearchInput } from './SymbolSearchInput'
@@ -289,7 +290,7 @@ export function PositionForm({
 
       {isCashOther && (
         <label className={labelClass}>
-          Aktueller Wert
+          Aktueller Wert{form.currency !== 'EUR' ? ` (in ${form.currency})` : ''}
           <input
             type="number"
             step="any"
@@ -303,13 +304,35 @@ export function PositionForm({
 
       <label className={labelClass}>
         Währung
-        <input
-          className={inputClass}
-          value={form.currency}
-          onChange={(e) => update('currency', e.target.value.toUpperCase())}
-          maxLength={3}
-          required
-        />
+        {isCashOther ? (
+          // Auswahl statt Freitext: ein Tippfehler ("USDD") würde sonst dazu führen, dass kein
+          // Wechselkurs abrufbar ist und die Position ohne Eurowert dasteht.
+          <select
+            className={inputClass}
+            value={form.currency}
+            onChange={(e) => update('currency', e.target.value)}
+            required
+          >
+            {CURRENCY_ORDER.map((code) => (
+              <option key={code} value={code}>
+                {code} – {SUPPORTED_CURRENCIES[code]}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            className={inputClass}
+            value={form.currency}
+            onChange={(e) => update('currency', e.target.value.toUpperCase())}
+            maxLength={3}
+            required
+          />
+        )}
+        {isCashOther && form.currency !== 'EUR' && (
+          <span className="mt-1 block text-xs font-normal text-slate-500 dark:text-slate-400">
+            Der Betrag wird mit dem tagesaktuellen Wechselkurs in Euro umgerechnet.
+          </span>
+        )}
       </label>
 
       {!isCashOther && (

@@ -19,19 +19,24 @@ import type {
  * getestet: 31 von 32 Wertpapieren lösten sich direkt oder über ISIN auf, nur eins brauchte den
  * WKN-Umweg. Nicht auflösbar sind i.d.R. Hebelprodukte/Zertifikate, die Yahoo nicht als
  * EQUITY/ETF führt - das ist erwartetes Verhalten, keine fehlerhafte Suche.
+ *
+ * Die ISIN-Schritte sind übersprungen, wenn keine vorliegt: eine Suche mit leerem Text liefert
+ * beliebige Treffer und würde dem Wertpapier ein falsches Kürzel zuordnen.
  */
 async function resolveSecurity(
   isin: string,
   wkn: string,
   name: string
 ): Promise<SymbolSearchResult | null> {
-  const direct = await yahooService.searchSymbols(isin, 'STOCK_ETF')
-  if (direct.length > 0) return direct[0]
+  if (isin) {
+    const direct = await yahooService.searchSymbols(isin, 'STOCK_ETF')
+    if (direct.length > 0) return direct[0]
 
-  const isinMatch = await resolveToTicker('ID_ISIN', isin)
-  if (isinMatch) {
-    const bySymbol = await yahooService.searchSymbols(isinMatch.ticker, 'STOCK_ETF')
-    if (bySymbol.length > 0) return bySymbol[0]
+    const isinMatch = await resolveToTicker('ID_ISIN', isin)
+    if (isinMatch) {
+      const bySymbol = await yahooService.searchSymbols(isinMatch.ticker, 'STOCK_ETF')
+      if (bySymbol.length > 0) return bySymbol[0]
+    }
   }
 
   if (wkn) {
@@ -54,9 +59,13 @@ export async function importCsv(
   onProgress: (event: CsvImportProgressEvent) => void
 ): Promise<CsvImportResult> {
   const rows = parseBrokerCsv(csvText)
-  const uniqueSecurities = [...new Map(rows.map((r) => [r.isin, r])).values()]
+  // Schlüssel je Wertpapier: bevorzugt die ISIN, sonst der Name. Ausschließlich über die ISIN zu
+  // gruppieren war falsch - liefert ein Export keine, fielen ALLE Buchungen auf denselben leeren
+  // Schlüssel und wurden zu einer einzigen, falschen Position verschmolzen.
+  const securityKey = (row: ParsedTransactionRow): string => row.isin || row.name
+  const uniqueSecurities = [...new Map(rows.map((r) => [securityKey(r), r])).values()]
 
-  const resolvedByIsin = new Map<string, SymbolSearchResult | null>()
+  const resolvedByKey = new Map<string, SymbolSearchResult | null>()
   const unresolved: { name: string; isin: string }[] = []
 
   for (let i = 0; i < uniqueSecurities.length; i++) {
@@ -68,7 +77,7 @@ export async function importCsv(
       status: 'resolving'
     })
     const result = await resolveSecurity(sec.isin, sec.wkn, sec.name)
-    resolvedByIsin.set(sec.isin, result)
+    resolvedByKey.set(securityKey(sec), result)
     if (!result) unresolved.push({ name: sec.name, isin: sec.isin })
     onProgress({
       rowIndex: i,
@@ -83,7 +92,7 @@ export async function importCsv(
   // sortieren, damit sowohl die Eröffnungsdatum-Wahl als auch die spätere FIFO-Berechnung stimmen.
   const groups = new Map<string, { resolved: SymbolSearchResult; rows: ParsedTransactionRow[] }>()
   for (const row of rows) {
-    const resolved = resolvedByIsin.get(row.isin)
+    const resolved = resolvedByKey.get(securityKey(row))
     if (!resolved) continue
     const key = resolved.identifier
     const group = groups.get(key)
@@ -110,7 +119,7 @@ export async function importCsv(
         identifier,
         // Die ISIN aus der Broker-Datei ist die verlässlichste Quelle, die wir je bekommen -
         // eindeutig und ohne Namensraterei. Sie wird für die ETF-Länderaufteilung gebraucht.
-        isin: sortedRows[0].isin,
+        isin: sortedRows[0].isin || null,
         quantity: 0,
         quantityUnit: null,
         currency: sortedRows[0].currency,

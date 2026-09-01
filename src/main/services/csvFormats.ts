@@ -234,6 +234,34 @@ function parseDate(raw: string): string | null {
   return null
 }
 
+/** ISO 6166: zwei Buchstaben Land, neun alphanumerische Stellen, eine Prüfziffer. */
+const ISIN_PATTERN = /^[A-Z]{2}[A-Z0-9]{9}\d$/
+
+/**
+ * Findet die Spalte mit den ISINs anhand ihres INHALTS statt ihres Namens.
+ *
+ * Nötig, weil nicht jeder Broker eine Spalte "ISIN" führt: Trade Republic legt die ISIN in die
+ * Spalte "symbol", wo andere Exporte ein Börsenkürzel haben. Über den Namen zu gehen würde dort
+ * nichts finden - und ohne ISIN fallen im Import alle Buchungen auf denselben leeren Schlüssel
+ * zusammen und werden zu einer einzigen falschen Position verschmolzen.
+ *
+ * Eine per Name gefundene Spalte wird nur übernommen, wenn dort auch wirklich ISINs stehen.
+ */
+function detectIsinColumn(rows: string[][], named: number | undefined): number | undefined {
+  const countIsins = (col: number): number =>
+    rows.filter((r) => ISIN_PATTERN.test((r[col] ?? '').trim().toUpperCase())).length
+
+  if (named !== undefined && countIsins(named) > 0) return named
+
+  const width = rows.reduce((max, r) => Math.max(max, r.length), 0)
+  let best: { col: number; hits: number } | null = null
+  for (let col = 0; col < width; col++) {
+    const hits = countIsins(col)
+    if (hits > 0 && (!best || hits > best.hits)) best = { col, hits }
+  }
+  return best?.col
+}
+
 export interface CsvColumnMap {
   delimiter: string
   headers: string[]
@@ -303,6 +331,7 @@ export function parseBrokerCsv(csvText: string): ParsedTransactionRow[] {
     (i): i is number => i !== undefined
   )
   const germanNumbers = detectGermanNumbers(rows, numericColumns)
+  const isinColumn = detectIsinColumn(rows, index.isin)
 
   const at = (row: string[], key: FieldKey): string => {
     const i = index[key]
@@ -339,7 +368,7 @@ export function parseBrokerCsv(csvText: string): ParsedTransactionRow[] {
 
     out.push({
       name: at(row, 'name'),
-      isin: at(row, 'isin'),
+      isin: isinColumn === undefined ? '' : (row[isinColumn] ?? '').trim().toUpperCase(),
       wkn: at(row, 'wkn'),
       type,
       quantity,
