@@ -1,4 +1,5 @@
-import type { AssetClass, FxRate, PriceCacheEntry, Position, QuantityUnit } from './types'
+import type { FxRate, PriceCacheEntry, Position, QuantityUnit } from './types'
+import { displayClass, type DisplayClass } from './displayClass'
 import { commodityPricingUnit } from './commodities'
 
 const GRAMS_PER_TROY_OUNCE = 31.1034768
@@ -18,7 +19,11 @@ function toGrams(quantity: number, unit: QuantityUnit): number {
 }
 
 /** Rechnet zwischen Gewichtseinheiten um (z.B. Gramm -> Feinunze für Gold, Kilogramm -> Pfund für Kupfer). */
-export function convertQuantity(quantity: number, fromUnit: QuantityUnit, toUnit: QuantityUnit): number {
+export function convertQuantity(
+  quantity: number,
+  fromUnit: QuantityUnit,
+  toUnit: QuantityUnit
+): number {
   if (fromUnit === toUnit) return quantity
   const grams = toGrams(quantity, fromUnit)
   switch (toUnit) {
@@ -99,9 +104,12 @@ export function computePositionValue(
   // Der Kurs von Yahoo ist immer in der jeweiligen Notierungseinheit des Futures (Gold/Silber in
   // Feinunze, Kupfer in Pfund) - bei Positionen, die in Gramm/kg erfasst wurden, muss die Menge
   // für die Wertberechnung erst umgerechnet werden.
-  const pricingUnit = position.assetClass === 'COMMODITY' ? commodityPricingUnit(position.identifier) : null
+  const pricingUnit =
+    position.assetClass === 'COMMODITY' ? commodityPricingUnit(position.identifier) : null
   const pricingQuantity =
-    pricingUnit && position.quantityUnit ? convertQuantity(position.quantity, position.quantityUnit, pricingUnit) : position.quantity
+    pricingUnit && position.quantityUnit
+      ? convertQuantity(position.quantity, position.quantityUnit, pricingUnit)
+      : position.quantity
 
   const valueNative = pricingQuantity * cacheEntry.price
   // Der Marktkurs braucht IMMER den Wechselkurs der Marktwährung (z.B. USD bei US-Aktien).
@@ -142,15 +150,18 @@ export function computeAllPositionValues(
   return positions.map((p) => computePositionValue(p, priceCache, fxRates))
 }
 
-export function sumByAssetClass(values: PositionValue[]): Record<AssetClass, number> {
-  const totals: Record<AssetClass, number> = {
+export function sumByAssetClass(values: PositionValue[]): Record<DisplayClass, number> {
+  // Nach ANZEIGEKLASSE aufteilen, damit Anleihen auch im gespeicherten Verlauf eigenständig
+  // erscheinen - sonst zeigte der Zeitverlauf beim Filter 'Anleihen' dauerhaft null.
+  const totals: Record<DisplayClass, number> = {
     STOCK_ETF: 0,
+    BOND: 0,
     CRYPTO: 0,
     COMMODITY: 0,
     CASH_OTHER: 0
   }
   for (const v of values) {
-    if (v.valueEur !== null) totals[v.position.assetClass] += v.valueEur
+    if (v.valueEur !== null) totals[displayClass(v.position)] += v.valueEur
   }
   return totals
 }

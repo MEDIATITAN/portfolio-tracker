@@ -1,4 +1,4 @@
-import type { AssetClass } from '@shared/types'
+import type { DisplayClass } from '@shared/displayClass'
 
 export type Page = 'dashboard' | 'positions' | 'pnl' | 'transactions'
-export type ClassFilter = AssetClass | 'ALL'
+export type ClassFilter = DisplayClass | 'ALL'

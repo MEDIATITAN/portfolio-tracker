@@ -1,5 +1,10 @@
 import { getDb } from './index'
-import type { AssetClass, Transaction, TransactionType, TransactionWithPosition } from '../../shared/types'
+import type {
+  AssetClass,
+  Transaction,
+  TransactionType,
+  TransactionWithPosition
+} from '../../shared/types'
 
 interface TransactionRow {
   id: number
@@ -46,11 +51,28 @@ export function createTransaction(input: NewTransaction): Transaction {
       `INSERT INTO transactions (position_id, type, quantity, price, currency, date, broker, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(input.positionId, input.type, input.quantity, input.price, input.currency, input.date, input.broker, input.notes)
+    .run(
+      input.positionId,
+      input.type,
+      input.quantity,
+      input.price,
+      input.currency,
+      input.date,
+      input.broker,
+      input.notes
+    )
   const row = getDb()
     .prepare('SELECT * FROM transactions WHERE id = ?')
     .get(Number(result.lastInsertRowid)) as unknown as TransactionRow
   return rowToTransaction(row)
+}
+
+/** Hängt alle Buchungen einer Position an eine andere um - für das Zusammenführen von Doppelungen. */
+export function moveTransactions(fromPositionId: number, toPositionId: number): number {
+  const result = getDb()
+    .prepare('UPDATE transactions SET position_id = ? WHERE position_id = ?')
+    .run(toPositionId, fromPositionId)
+  return Number(result.changes)
 }
 
 export function listTransactionsByPosition(positionId: number): Transaction[] {
@@ -61,7 +83,9 @@ export function listTransactionsByPosition(positionId: number): Transaction[] {
 }
 
 export function countTransactionsForPosition(positionId: number): number {
-  const row = getDb().prepare('SELECT COUNT(*) c FROM transactions WHERE position_id = ?').get(positionId) as unknown as {
+  const row = getDb()
+    .prepare('SELECT COUNT(*) c FROM transactions WHERE position_id = ?')
+    .get(positionId) as unknown as {
     c: number
   }
   return row.c

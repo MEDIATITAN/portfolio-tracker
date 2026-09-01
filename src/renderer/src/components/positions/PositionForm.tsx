@@ -78,9 +78,14 @@ export function PositionForm({
   submitting
 }: PositionFormProps): React.JSX.Element {
   const [form, setForm] = useState<NewPosition>(initial ? toNewPosition(initial) : emptyForm())
+  /** Eingabehilfe "Gesamt investiert" - siehe handleInvestedChange weiter unten. */
+  const [investedText, setInvestedText] = useState<string | null>(null)
 
   useEffect(() => {
     setForm(initial ? toNewPosition(initial) : emptyForm())
+    // Auch die Eingabehilfe zurücksetzen - sonst würde ein für die vorige Position eingetippter
+    // Gesamtbetrag auf die neue angewandt.
+    setInvestedText(null)
   }, [initial])
 
   const isCashOther = form.assetClass === 'CASH_OTHER'
@@ -92,6 +97,43 @@ export function PositionForm({
 
   function update<K extends keyof NewPosition>(key: K, value: NewPosition[K]): void {
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  /**
+   * Der insgesamt investierte Betrag ist KEIN eigenes Datenfeld - gespeichert wird weiterhin nur
+   * der Einstandspreis je Stück. Er ist eine Eingabehilfe: Wer "500 EUR für 3,5 Stück" im Kopf hat,
+   * soll nicht selbst dividieren müssen.
+   *
+   * Solange hier nichts getippt wurde (investedText === null), zeigt das Feld den aus Einstandspreis
+   * mal Menge errechneten Betrag an. Sobald etwas eingetippt wird, dreht sich die Richtung um: dann
+   * ist der Betrag die maßgebliche Angabe und der Einstandspreis folgt - auch wenn danach die Menge
+   * geändert wird.
+   */
+  const investedValue = investedText === null ? null : Number(investedText.replace(',', '.'))
+  const investedDisplay =
+    investedText ??
+    (form.avgCostBasis !== null && form.quantity > 0
+      ? String(Math.round(form.avgCostBasis * form.quantity * 100) / 100)
+      : '')
+
+  function handleInvestedChange(text: string): void {
+    setInvestedText(text)
+    const total = Number(text.replace(',', '.'))
+    if (text.trim() === '') update('avgCostBasis', null)
+    else if (!Number.isNaN(total) && form.quantity > 0)
+      update('avgCostBasis', total / form.quantity)
+  }
+
+  function handleQuantityChange(text: string): void {
+    const quantity = Number(text)
+    setForm((prev) => {
+      const next = { ...prev, quantity }
+      // Betrag wurde eingetippt: er bleibt stehen, der Einstandspreis wird neu verteilt.
+      if (investedValue !== null && !Number.isNaN(investedValue) && quantity > 0) {
+        next.avgCostBasis = investedValue / quantity
+      }
+      return next
+    })
   }
 
   function handleSymbolText(text: string): void {
@@ -267,7 +309,7 @@ export function PositionForm({
               step="any"
               className={`${inputClass} flex-1`}
               value={form.quantity}
-              onChange={(e) => update('quantity', Number(e.target.value))}
+              onChange={(e) => handleQuantityChange(e.target.value)}
               disabled={isLedgerBacked}
               required
             />
@@ -344,9 +386,32 @@ export function PositionForm({
             step="any"
             className={inputClass}
             value={form.avgCostBasis ?? ''}
-            onChange={(e) => update('avgCostBasis', e.target.value ? Number(e.target.value) : null)}
+            onChange={(e) => {
+              // Wieder der Stückpreis ist maßgeblich - der Gesamtbetrag rechnet sich daraus.
+              setInvestedText(null)
+              update('avgCostBasis', e.target.value ? Number(e.target.value) : null)
+            }}
             disabled={isLedgerBacked}
           />
+        </label>
+      )}
+
+      {!isCashOther && (
+        <label className={labelClass}>
+          Gesamt investiert{isLedgerBacked ? ' (aus Verlauf berechnet)' : ' (optional)'}
+          <input
+            type="number"
+            step="any"
+            className={inputClass}
+            value={investedDisplay}
+            onChange={(e) => handleInvestedChange(e.target.value)}
+            disabled={isLedgerBacked}
+            placeholder={`z.B. 500 für ${form.quantity || 1} Stück`}
+          />
+          <span className="mt-1 block text-xs font-normal text-slate-500 dark:text-slate-400">
+            Beide Felder hängen zusammen: Trägst du den Gesamtbetrag ein, ergibt sich der
+            Einstandspreis daraus – und umgekehrt.
+          </span>
         </label>
       )}
       {isLedgerBacked && (

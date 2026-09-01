@@ -2,6 +2,7 @@ import type { EtfCompositionEntry } from '@shared/types'
 import type { PositionValue } from '@shared/valueCalc'
 import { sectorLabelDe } from '@shared/sectors'
 import { ASSET_CLASS_LABELS } from './format'
+import { displayClass } from '@shared/displayClass'
 import { countryToRegion } from './regionMap'
 
 /** Eine einzelne Position und ihr Beitrag zu einer Diagramm-Scheibe. */
@@ -73,12 +74,15 @@ export function assetClassBreakdown(values: PositionValue[]): Slice[] {
   const acc = createAccumulator()
   for (const v of values) {
     if (v.valueEur === null || v.valueEur <= 0) continue
+    // Anleihen zuerst abfangen: ein Anleihen-ETF bleibt technisch STOCK_ETF, gehört aber in
+    // seinen eigenen Bereich und nicht zu den Aktien-ETFs.
+    const cls = displayClass(v.position)
     const label =
-      v.position.assetClass === 'STOCK_ETF'
+      cls === 'STOCK_ETF'
         ? v.position.securityType === 'ETF'
           ? 'ETFs'
           : 'Aktien'
-        : ASSET_CLASS_LABELS[v.position.assetClass]
+        : ASSET_CLASS_LABELS[cls]
     acc.add(label, v.position.name, v.valueEur)
   }
   return acc.toSlices()
@@ -97,7 +101,9 @@ export function sectorBreakdown(
   const acc = createAccumulator()
 
   for (const v of values) {
-    if (v.position.assetClass !== 'STOCK_ETF' || v.valueEur === null || v.valueEur <= 0) continue
+    // Anleihen bleiben außen vor: ein Rentenfonds hat keine Aktiensektoren, er würde nur als
+    // 'Ohne Sektorangabe' erscheinen und den Rest verwässern.
+    if (displayClass(v.position) !== 'STOCK_ETF' || v.valueEur === null || v.valueEur <= 0) continue
 
     if (v.position.securityType === 'ETF') {
       const parts = compositions.filter(
@@ -153,7 +159,8 @@ export function regionBreakdown(
     grouping === 'country' ? country : countryToRegion(country)
 
   for (const v of values) {
-    if (v.position.assetClass !== 'STOCK_ETF' || v.valueEur === null || v.valueEur <= 0) continue
+    // Wie beim Sektor-Diagramm: Anleihen haben keine Länderaufteilung im Aktiensinn.
+    if (displayClass(v.position) !== 'STOCK_ETF' || v.valueEur === null || v.valueEur <= 0) continue
 
     if (v.position.securityType === 'ETF') {
       const parts = compositions.filter(

@@ -1,4 +1,5 @@
-import type { AssetClass, CashSubType } from '@shared/types'
+import type { CashSubType } from '@shared/types'
+import type { DisplayClass } from '@shared/displayClass'
 
 const eurFormatter = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
 const numberFormatter = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 4 })
@@ -50,11 +51,12 @@ export function formatDate(isoDate: string | null | undefined): string {
   return new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeZone: 'UTC' }).format(date)
 }
 
-export const ASSET_CLASS_LABELS: Record<AssetClass, string> = {
+export const ASSET_CLASS_LABELS: Record<DisplayClass, string> = {
   STOCK_ETF: 'Aktien & ETFs',
+  BOND: 'Anleihen',
   CRYPTO: 'Kryptowährungen',
   COMMODITY: 'Rohstoffe & Edelmetalle',
-  CASH_OTHER: 'Cash, Anleihen & Sonstiges'
+  CASH_OTHER: 'Cash & Sonstiges'
 }
 
 export const CASH_SUB_TYPE_LABELS: Record<CashSubType, string> = {

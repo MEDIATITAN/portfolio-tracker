@@ -5,7 +5,10 @@ import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 import { getDb } from './db'
 import { registerIpcHandlers } from './ipc'
-import { migrateExistingPositionsToTransactions } from './services/ledgerService'
+import {
+  mergeDuplicatesByIsin,
+  migrateExistingPositionsToTransactions
+} from './services/ledgerService'
 
 function createWindow(): void {
   // Create the browser window.
@@ -58,6 +61,17 @@ app.whenReady().then(() => {
   // DB-Schema initialisieren, bevor IPC-Handler registriert werden, die darauf zugreifen.
   getDb()
   migrateExistingPositionsToTransactions()
+  // Dasselbe Wertpapier kann aus zwei Broker-Importen unter verschiedenen Börsenplätzen liegen
+  // ('IWDA.L' gegen 'IWDA.AS'). Beim Start einmal über die ISIN zusammenführen - idempotent,
+  // ohne Doppelungen ein no-op.
+  {
+    const dedupe = mergeDuplicatesByIsin()
+    if (dedupe.merged > 0)
+      console.log(
+        `${dedupe.merged} doppelte Position(en) zusammengeführt:`,
+        dedupe.removed.join(', ')
+      )
+  }
   registerIpcHandlers()
 
   createWindow()

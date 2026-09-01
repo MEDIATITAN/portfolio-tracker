@@ -100,15 +100,25 @@ export async function importCsv(
     else groups.set(key, { resolved, rows: [row] })
   }
 
-  const existingByIdentifier = new Map(
-    positionsRepo.listPositions().map((p) => [p.identifier, p] as const)
+  // Zuordnung zu bestehenden Positionen: ERST über die ISIN, dann über das Kürzel. Nur über das
+  // Kürzel zu gehen war zu eng - die Wertpapiersuche liefert je nach Anfrage einen anderen
+  // Börsenplatz desselben Papiers ("IWDA.L" gegen "IWDA.AS"), wodurch derselbe ETF aus zwei
+  // Broker-Dateien als zwei Positionen anlegte.
+  const existingPositions = positionsRepo.listPositions()
+  const existingByIsin = new Map(
+    existingPositions.filter((p) => p.isin).map((p) => [p.isin as string, p] as const)
   )
+  const existingByIdentifier = new Map(existingPositions.map((p) => [p.identifier, p] as const))
   let transactionsImported = 0
   const affectedPositionIds: number[] = []
 
   for (const [identifier, group] of groups) {
     const sortedRows = [...group.rows].sort((a, b) => a.date.localeCompare(b.date))
-    let position = existingByIdentifier.get(identifier) ?? null
+    const fileIsin = sortedRows.find((r) => r.isin)?.isin ?? ''
+    let position =
+      (fileIsin ? existingByIsin.get(fileIsin) : undefined) ??
+      existingByIdentifier.get(identifier) ??
+      null
 
     if (!position) {
       position = positionsRepo.createPosition({
@@ -160,17 +170,28 @@ export async function importCsv(
     affectedPositionIds.push(position.id)
   }
 
-  for (const positionId of affectedPositionIds) {
+  // Nach dem Import zusammenführen: Positionen aus FRÜHEREN Importen können dasselbe Papier unter
+  // einem anderen Börsenplatz führen. Die Zuordnung oben verhindert nur neue Doppelungen.
+  const dedupe = ledgerService.mergeDuplicatesByIsin()
+  if (dedupe.merged > 0) console.log('Zusammengeführte Positionen:', dedupe.removed.join(', '))
+
+  // Nur noch vorhandene Positionen nachbearbeiten: Das Zusammenführen oben kann eine der eben
+  // bearbeiteten Positionen entfernt haben - getPositionById würde darauf mit einem Fehler
+  // abbrechen und den gesamten Import scheitern lassen, obwohl die Buchungen längst geschrieben sind.
+  const stillExisting = new Set(positionsRepo.listPositions().map((p) => p.id))
+  const toRefresh = [...new Set(affectedPositionIds)].filter((id) => stillExisting.has(id))
+
+  for (const positionId of toRefresh) {
     ledgerService.recomputePosition(positionId)
     await priceService.ensureHistoricalData(positionsRepo.getPositionById(positionId))
   }
-  if (affectedPositionIds.length > 0) {
+  if (toRefresh.length > 0) {
     await priceService.refreshAll()
   }
 
   return {
     transactionsImported,
-    positionsAffected: affectedPositionIds.length,
+    positionsAffected: toRefresh.length,
     unresolved
   }
 }

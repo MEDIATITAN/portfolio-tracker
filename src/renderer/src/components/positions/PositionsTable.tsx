@@ -1,12 +1,7 @@
 import { Fragment, useState } from 'react'
-import type {
-  AssetClass,
-  FxRate,
-  PriceCacheEntry,
-  Position,
-  TransactionWithPosition
-} from '@shared/types'
+import type { FxRate, PriceCacheEntry, Position, TransactionWithPosition } from '@shared/types'
 import { computeAllPositionValues, findFxRate } from '@shared/valueCalc'
+import { displayClass, DISPLAY_CLASS_ORDER } from '@shared/displayClass'
 import {
   ASSET_CLASS_LABELS,
   CASH_SUB_TYPE_LABELS,
@@ -25,13 +20,25 @@ interface PositionsTableProps {
   onDelete: (id: number) => void
 }
 
-const GROUP_ORDER: AssetClass[] = ['STOCK_ETF', 'CRYPTO', 'COMMODITY', 'CASH_OTHER']
+const GROUP_ORDER = DISPLAY_CLASS_ORDER
 
 const QUANTITY_UNIT_SUFFIX: Record<string, string> = {
   GRAM: 'g',
   KG: 'kg',
   TROY_OUNCE: 'oz',
   POUND: 'lb'
+}
+
+/**
+ * Vollständig verkauft: Bestand null, aber es gab Buchungen. Solche Positionen werden in der Liste
+ * ausgeblendet - sie sind kein Bestand mehr. Gelöscht werden sie NICHT: PnL und Verlauf rechnen auf
+ * ihren Buchungen, ohne sie wären realisierte Gewinne und die Kaufhistorie verloren.
+ *
+ * Die Toleranz statt eines Vergleichs auf exakt 0 fängt Rundungsreste der FIFO-Berechnung ab, die
+ * bei Bruchteilen aus Sparplänen entstehen können.
+ */
+function isSoldOut(position: Position): boolean {
+  return position.hasTransactions && Math.abs(position.quantity) < 1e-9
 }
 
 /** Die Buchungen einer Position, chronologisch - die Reihenfolge, in der auch FIFO rechnet. */
@@ -115,6 +122,7 @@ export function PositionsTable({
 }: PositionsTableProps): React.JSX.Element {
   const { data: transactions } = useTransactions()
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [showSoldOut, setShowSoldOut] = useState(false)
 
   if (positions.length === 0) {
     return (
@@ -124,7 +132,9 @@ export function PositionsTable({
     )
   }
 
-  const values = computeAllPositionValues(positions, priceCache, fxRates)
+  const allValues = computeAllPositionValues(positions, priceCache, fxRates)
+  const soldOutCount = allValues.filter((v) => isSoldOut(v.position)).length
+  const values = showSoldOut ? allValues : allValues.filter((v) => !isSoldOut(v.position))
 
   // Buchungen je Position, chronologisch - dieselbe Reihenfolge, in der auch FIFO rechnet.
   const byPosition = new Map<number, TransactionWithPosition[]>()
@@ -138,7 +148,7 @@ export function PositionsTable({
   return (
     <div className="flex flex-col gap-6">
       {GROUP_ORDER.map((assetClass) => {
-        const group = values.filter((v) => v.position.assetClass === assetClass)
+        const group = values.filter((v) => displayClass(v.position) === assetClass)
         if (group.length === 0) return null
         return (
           <section key={assetClass}>
@@ -201,6 +211,11 @@ export function PositionsTable({
                               </span>
                             )}
                             {position.name}
+                            {isSoldOut(position) && (
+                              <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                verkauft
+                              </span>
+                            )}
                             {position.subType && (
                               <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">
                                 ({CASH_SUB_TYPE_LABELS[position.subType]})
@@ -308,6 +323,23 @@ export function PositionsTable({
           </section>
         )
       })}
+
+      {soldOutCount > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-slate-300 px-4 py-2 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+          <span>
+            {soldOutCount} vollständig verkaufte Position{soldOutCount === 1 ? '' : 'en'}{' '}
+            {showSoldOut ? 'werden mit angezeigt' : 'ausgeblendet'} – unter PnL und im Verlauf
+            bleiben sie erhalten.
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowSoldOut((v) => !v)}
+            className="shrink-0 rounded border border-slate-300 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            {showSoldOut ? 'Ausblenden' : 'Trotzdem anzeigen'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

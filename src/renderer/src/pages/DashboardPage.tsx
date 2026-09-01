@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { computeAllPositionValues, sumTotalEur, totalGainLoss } from '@shared/valueCalc'
+import { displayClass } from '@shared/displayClass'
 import { NetWorthCard } from '../components/dashboard/NetWorthCard'
 import { BreakdownDonut } from '../components/dashboard/BreakdownDonut'
 import { ValueOverTimeChart } from '../components/dashboard/ValueOverTimeChart'
@@ -68,11 +69,11 @@ export function DashboardPage({
 
   const values = computeAllPositionValues(positions ?? [], priceCache ?? [], fxRates ?? [])
   const filteredValues =
-    classFilter === 'ALL' ? values : values.filter((v) => v.position.assetClass === classFilter)
+    classFilter === 'ALL' ? values : values.filter((v) => displayClass(v.position) === classFilter)
   const total = sumTotalEur(filteredValues)
   const gainLoss = totalGainLoss(filteredValues)
   const hasPositionsInClass =
-    classFilter === 'ALL' || (positions ?? []).some((p) => p.assetClass === classFilter)
+    classFilter === 'ALL' || (positions ?? []).some((p) => displayClass(p) === classFilter)
   const hasAnyPositions = (positions ?? []).length > 0
 
   function toggle(key: ChartKey): () => void {

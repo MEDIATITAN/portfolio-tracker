@@ -49,6 +49,10 @@ const FIELD_SYNONYMS: Record<FieldKey, string[]> = {
   date: [
     'ausführung datum',
     'ausfuehrung datum',
+    // Geschäftstag vor Buchungstag: comdirect führt beide, und der Geschäftstag ist der Tag der
+    // tatsächlichen Ausführung. Der Buchungstag liegt regelmäßig einen Werktag später.
+    'geschäftstag',
+    'geschaeftstag',
     'datum',
     'date',
     'datetime',
@@ -71,7 +75,15 @@ const FIELD_SYNONYMS: Record<FieldKey, string[]> = {
     'stueck'
   ],
   price: ['ausführung kurs', 'ausfuehrung kurs', 'kurs', 'price', 'preis', 'share_price'],
-  amount: ['amount', 'betrag', 'gesamtbetrag', 'total', 'original_amount'],
+  amount: [
+    'amount',
+    'betrag',
+    'gesamtbetrag',
+    'umsatz in eur',
+    'umsatz',
+    'total',
+    'original_amount'
+  ],
   currency: ['currency', 'währung', 'waehrung', 'original_currency'],
   status: ['status', 'state']
 }
@@ -311,22 +323,51 @@ export class CsvFormatError extends Error {
  * mit einem anderen Buchungstyp (Dividende, Einzahlung, Gebühr) werden still übersprungen - der
  * Import baut ein Wertpapierdepot auf, keine Kontobuchungen.
  */
-export function parseBrokerCsv(csvText: string): ParsedTransactionRow[] {
-  const text = stripBom(csvText)
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '')
-  if (lines.length === 0) return []
-
-  const { delimiter, headers, index } = mapColumns(lines[0])
-
+/**
+ * Welche Pflichtangaben in einer Kopfzeile fehlen. Die Kauf/Verkauf-Angabe steht bewusst NICHT
+ * darin: comdirect führt keine solche Spalte, dort ergibt sich die Richtung aus dem Vorzeichen
+ * der Stückzahl.
+ */
+function missingFields(index: Partial<Record<FieldKey, number>>): string[] {
   const missing: string[] = []
   if (index.date === undefined) missing.push('Datum')
   if (index.isin === undefined && index.name === undefined) missing.push('ISIN oder Wertpapiername')
   if (index.quantity === undefined) missing.push('Stückzahl')
   if (index.price === undefined && index.amount === undefined) missing.push('Kurs oder Betrag')
-  if (index.type === undefined) missing.push('Kauf/Verkauf-Angabe')
-  if (missing.length > 0) throw new CsvFormatError(missing, headers)
+  return missing
+}
 
-  const rows = lines.slice(1).map((l) => splitCsvLine(l, delimiter))
+/**
+ * Sucht die Kopfzeile, statt sie in Zeile 1 anzunehmen.
+ *
+ * comdirect stellt dem Export drei Zeilen voran (Titel, Zeitraum, Leerzeile); die Spaltennamen
+ * stehen erst in Zeile 4. Geprüft werden deshalb die ersten Zeilen der Reihe nach, und genommen
+ * wird die erste, in der sich alle Pflichtangaben wiederfinden.
+ */
+function findHeader(lines: string[]): { rowStart: number; map: CsvColumnMap } {
+  const limit = Math.min(lines.length, 15)
+  let best: { rowStart: number; map: CsvColumnMap; missing: string[] } | null = null
+  for (let i = 0; i < limit; i++) {
+    const map = mapColumns(lines[i])
+    const missing = missingFields(map.index)
+    if (missing.length === 0) return { rowStart: i + 1, map }
+    // Für die Fehlermeldung die aussichtsreichste Zeile merken, nicht stur die erste.
+    if (!best || missing.length < best.missing.length) best = { rowStart: i + 1, map, missing }
+  }
+  throw new CsvFormatError(best ? best.missing : ['Datum'], best ? best.map.headers : [])
+}
+
+export function parseBrokerCsv(csvText: string): ParsedTransactionRow[] {
+  const text = stripBom(csvText)
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '')
+  if (lines.length === 0) return []
+
+  const {
+    rowStart,
+    map: { delimiter, index }
+  } = findHeader(lines)
+
+  const rows = lines.slice(rowStart).map((l) => splitCsvLine(l, delimiter))
   const numericColumns = [index.quantity, index.price, index.amount].filter(
     (i): i is number => i !== undefined
   )
@@ -346,23 +387,36 @@ export function parseBrokerCsv(csvText: string): ParsedTransactionRow[] {
       if (status !== '' && !EXECUTED_VALUES.has(status)) continue
     }
 
-    const rawType = at(row, 'type').toLowerCase()
-    const type: TransactionType | null = BUY_VALUES.has(rawType)
-      ? 'BUY'
-      : SELL_VALUES.has(rawType)
-        ? 'SELL'
-        : null
-    if (type === null) continue
-
     const date = parseDate(at(row, 'date'))
-    const quantity = parseNumber(at(row, 'quantity'), germanNumbers)
-    if (date === null || quantity === null || quantity <= 0) continue
+    const rawQuantity = parseNumber(at(row, 'quantity'), germanNumbers)
+    if (date === null || rawQuantity === null || rawQuantity === 0) continue
+
+    // Umsatz exakt null bedeutet: kein Geld geflossen, also kein Handel. Bei comdirect stehen so
+    // die Umbuchungen in der Datei - je Vorgang eine Ab- und eine Zugangszeile, beide mit Umsatz
+    // 0,00. Ohne diese Regel würde der Abgang (Kurs 0) verworfen, der Zugang aber als Kauf
+    // gewertet: ein bereits vorhandenes Papier läge danach doppelt im Depot.
+    const rawAmount =
+      index.amount === undefined ? null : parseNumber(at(row, 'amount'), germanNumbers)
+    if (index.amount !== undefined && rawAmount === 0) continue
+
+    let type: TransactionType
+    if (index.type !== undefined) {
+      const rawType = at(row, 'type').toLowerCase()
+      if (BUY_VALUES.has(rawType)) type = 'BUY'
+      else if (SELL_VALUES.has(rawType)) type = 'SELL'
+      // Andere Buchungsarten (Dividende, Einzahlung, Gebühr) gehören nicht ins Wertpapierdepot.
+      else continue
+    } else {
+      // Ohne eigene Spalte gibt das Vorzeichen der Stückzahl die Richtung an - so macht es
+      // comdirect: eine negative Stückzahl ist ein Verkauf.
+      type = rawQuantity < 0 ? 'SELL' : 'BUY'
+    }
+    const quantity = Math.abs(rawQuantity)
 
     // Manche Exporte führen keinen Stückkurs, sondern nur den Gesamtbetrag der Ausführung.
     let price = index.price === undefined ? null : parseNumber(at(row, 'price'), germanNumbers)
     if (price === null || price <= 0) {
-      const amount = parseNumber(at(row, 'amount'), germanNumbers)
-      price = amount === null ? null : Math.abs(amount) / quantity
+      price = rawAmount === null ? null : Math.abs(rawAmount) / quantity
     }
     if (price === null || price <= 0) continue
 

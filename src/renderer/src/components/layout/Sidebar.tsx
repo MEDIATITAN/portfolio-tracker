@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import type { AssetClass } from '@shared/types'
 import type { ClassFilter, Page } from '../../lib/navigation'
 import { ASSET_CLASS_LABELS } from '../../lib/format'
+import { DISPLAY_CLASS_ORDER } from '@shared/displayClass'
 import { useTheme } from '../../lib/ThemeContext'
 
 interface SidebarProps {
@@ -13,11 +13,17 @@ interface SidebarProps {
   onNavigateTransactions: () => void
 }
 
-const ASSET_CLASSES: AssetClass[] = ['STOCK_ETF', 'CRYPTO', 'COMMODITY', 'CASH_OTHER']
+const ASSET_CLASSES = DISPLAY_CLASS_ORDER
 
 function DashboardIcon(): React.JSX.Element {
   return (
-    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-4 w-4 shrink-0">
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      className="h-4 w-4 shrink-0"
+    >
       <circle cx="10" cy="10" r="7" />
       <path d="M10 3v7l5 3" />
     </svg>
@@ -140,7 +146,9 @@ export function Sidebar({
                   type="button"
                   onClick={() => onNavigateDashboard(ac)}
                   className={`rounded-md px-2 py-1.5 text-left text-xs ${
-                    active ? 'bg-blue-500/15 font-medium text-blue-400' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    active
+                      ? 'bg-blue-500/15 font-medium text-blue-400'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
                   }`}
                 >
                   {ASSET_CLASS_LABELS[ac]}
@@ -154,7 +162,9 @@ export function Sidebar({
           type="button"
           onClick={onNavigatePositions}
           className={`mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
-            page === 'positions' ? 'bg-blue-500/15 text-blue-400' : 'text-slate-300 hover:bg-slate-800'
+            page === 'positions'
+              ? 'bg-blue-500/15 text-blue-400'
+              : 'text-slate-300 hover:bg-slate-800'
           }`}
         >
           <ListIcon />
@@ -176,7 +186,9 @@ export function Sidebar({
           type="button"
           onClick={onNavigateTransactions}
           className={`mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
-            page === 'transactions' ? 'bg-blue-500/15 text-blue-400' : 'text-slate-300 hover:bg-slate-800'
+            page === 'transactions'
+              ? 'bg-blue-500/15 text-blue-400'
+              : 'text-slate-300 hover:bg-slate-800'
           }`}
         >
           <HistoryIcon />

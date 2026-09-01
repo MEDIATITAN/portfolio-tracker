@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { DisplayClass } from '@shared/displayClass'
 import {
   CartesianGrid,
   Label,
@@ -11,7 +12,6 @@ import {
   YAxis
 } from 'recharts'
 import type {
-  AssetClass,
   FxRate,
   HistoricalFxEntry,
   HistoricalPriceEntry,
@@ -29,7 +29,7 @@ interface ValueOverTimeChartProps {
   historicalPrices: HistoricalPriceEntry[]
   historicalFxRates: HistoricalFxEntry[]
   /** Wenn gesetzt: nur den Wertverlauf dieser Anlageklasse zeigen, statt des Gesamtvermögens. */
-  assetClassFilter?: AssetClass | 'ALL'
+  assetClassFilter?: DisplayClass | 'ALL'
   /** Ob es aktuell überhaupt Positionen in der gefilterten Anlageklasse gibt. */
   hasPositionsInClass?: boolean
   /** Ob überhaupt irgendeine Position existiert (unabhängig vom Filter) - dann Button statt Chart. */
@@ -124,7 +124,7 @@ function valueDomain([dataMin, dataMax]: readonly [number, number]): [number, nu
   return [Math.max(0, dataMin - pad), dataMax + pad]
 }
 
-function snapshotValue(snapshot: ValueSnapshot, assetClassFilter?: AssetClass | 'ALL'): number {
+function snapshotValue(snapshot: ValueSnapshot, assetClassFilter?: DisplayClass | 'ALL'): number {
   if (!assetClassFilter || assetClassFilter === 'ALL') return snapshot.totalValueEur
   return snapshot.items.find((i) => i.assetClass === assetClassFilter)?.valueEur ?? 0
 }

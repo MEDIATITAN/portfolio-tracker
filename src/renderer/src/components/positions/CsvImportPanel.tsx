@@ -19,6 +19,26 @@ const BROKER_OPTIONS: { value: BrokerFormat; label: string }[] = [
 
 type Phase = 'idle' | 'importing' | 'done' | 'fading'
 
+/**
+ * Wandelt die gelesenen Bytes in Text um - mit erkannter Kodierung statt fest UTF-8.
+ *
+ * FileReader.readAsText nimmt immer UTF-8 an. Der Depotumsatz-Export von comdirect ist aber
+ * Windows-1252 kodiert; dort würden aus "Stück", "Währung" und "Ausführungskurs" Zeichenfolgen mit
+ * Ersatzzeichen, und die Spaltenerkennung fände sie nicht mehr. Deshalb wird zuerst streng als
+ * UTF-8 versucht - schlägt das fehl, ist es kein UTF-8, und Windows-1252 ist bei deutschen
+ * Broker-Exporten die mit Abstand häufigste Alternative.
+ */
+function decodeCsv(result: FileReader['result']): string {
+  if (typeof result === 'string') return result
+  if (!result) return ''
+  const bytes = new Uint8Array(result)
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes)
+  }
+}
+
 export function CsvImportPanel(): React.JSX.Element {
   const [broker, setBroker] = useState<BrokerFormat>('AUTO')
   const [phase, setPhase] = useState<Phase>('idle')
@@ -68,7 +88,7 @@ export function CsvImportPanel(): React.JSX.Element {
 
     const reader = new FileReader()
     reader.onload = () => {
-      const csvText = String(reader.result ?? '')
+      const csvText = decodeCsv(reader.result)
       importCsv.mutate(
         { broker, csvText },
         {
@@ -87,7 +107,8 @@ export function CsvImportPanel(): React.JSX.Element {
       setError('Datei konnte nicht gelesen werden.')
       setPhase('done')
     }
-    reader.readAsText(file)
+    // Als Bytes lesen, nicht als Text: readAsText würde immer UTF-8 annehmen (siehe decodeCsv).
+    reader.readAsArrayBuffer(file)
   }
 
   return (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { NewPosition, Position, ResetProgressEvent } from '@shared/types'
 import { PositionForm } from '../components/positions/PositionForm'
 import { PositionsTable } from '../components/positions/PositionsTable'
@@ -35,6 +35,7 @@ export function PositionsPage(): React.JSX.Element {
 
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Position | null>(null)
+  const formRef = useRef<HTMLDivElement>(null)
   const [resetPhase, setResetPhase] = useState<ResetPhase>('idle')
   const [resetEntries, setResetEntries] = useState<Map<number, ResetEntry>>(new Map())
   const [resetError, setResetError] = useState<string | null>(null)
@@ -111,6 +112,14 @@ export function PositionsPage(): React.JSX.Element {
     setShowForm(true)
   }
 
+  // Zum Formular scrollen, sobald es zum Bearbeiten geöffnet wurde. Bewusst in einem Effekt und
+  // nicht direkt in handleEdit: dort existiert das Element noch gar nicht, es entsteht erst durch
+  // das setShowForm ausgelöste Rendern. Läuft auch beim Wechsel auf eine ANDERE Position (editing
+  // in den Abhängigkeiten), weil das Formular dann neu befüllt wird.
+  useEffect(() => {
+    if (showForm && editing) formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [showForm, editing])
+
   function handleDelete(id: number): void {
     if (confirm('Diese Position wirklich löschen?')) {
       deletePosition.mutate(id)
@@ -131,11 +140,16 @@ export function PositionsPage(): React.JSX.Element {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Positionen</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Deine Positionen im Überblick</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Deine Positionen im Überblick
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
-            <RefreshButton onRefresh={() => refreshPrices.mutate()} isRefreshing={refreshPrices.isPending} />
+            <RefreshButton
+              onRefresh={() => refreshPrices.mutate()}
+              isRefreshing={refreshPrices.isPending}
+            />
             <LastUpdatedBadge
               updatedCount={refreshPrices.data?.updatedCount ?? null}
               failedCount={refreshPrices.data?.failedIdentifiers.length ?? 0}
@@ -180,16 +194,20 @@ export function PositionsPage(): React.JSX.Element {
       )}
 
       {showForm && (
-        <PositionForm
-          initial={editing}
-          onSubmit={handleSubmit}
-          onCancel={closeForm}
-          submitting={createPosition.isPending || updatePosition.isPending}
-        />
+        <div ref={formRef}>
+          <PositionForm
+            initial={editing}
+            onSubmit={handleSubmit}
+            onCancel={closeForm}
+            submitting={createPosition.isPending || updatePosition.isPending}
+          />
+        </div>
       )}
 
       {isLoading && <p className="text-sm text-slate-500 dark:text-slate-400">Lade Positionen…</p>}
-      {error && <p className="text-sm text-red-600 dark:text-red-400">Fehler beim Laden: {String(error)}</p>}
+      {error && (
+        <p className="text-sm text-red-600 dark:text-red-400">Fehler beim Laden: {String(error)}</p>
+      )}
       {positions && (
         <PositionsTable
           positions={positions}

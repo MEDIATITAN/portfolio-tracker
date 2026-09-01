@@ -105,6 +105,45 @@ export async function ensureComposition(position: Position): Promise<void> {
 }
 
 /**
+ * Stuft Anleihen-ETFs automatisch als Anleihe ein.
+ *
+ * Erkannt wird das am Bestand des Fonds, nicht am Namen: Yahoo liefert unter topHoldings die Anteile
+ * bondPosition und stockPosition. Nachgemessen liegt bondPosition bei Anleihen-ETFs bei ~1,0 (iShares
+ * $ Treasury 20+: 0,9997; iShares Core Euro Govt Bond: 0,999) und bei Aktien-ETFs bei exakt 0. Eine
+ * Namensprüfung auf "Bond" oder "Treasury" wäre dagegen bei Mischfonds und fremdsprachigen
+ * Bezeichnungen unzuverlässig.
+ *
+ * Gekennzeichnet wird über sub_type='BOND' - die Anlageklasse bleibt STOCK_ETF, damit Kursabruf und
+ * Historie unverändert weiterlaufen (siehe shared/displayClass.ts).
+ */
+export async function reclassifyBondEtfs(): Promise<number> {
+  const candidates = positionsRepo
+    .listPositions()
+    .filter(
+      (p) =>
+        p.assetClass === 'STOCK_ETF' &&
+        p.securityType === 'ETF' &&
+        p.subType !== 'BOND' &&
+        p.identifier
+    )
+
+  let moved = 0
+  for (const position of candidates) {
+    try {
+      const holdings = await yahooService.getTopHoldings(position.identifier!)
+      if (!holdings) continue
+      if (holdings.bondPosition > 0.5 && holdings.bondPosition > holdings.stockPosition) {
+        positionsRepo.updatePosition({ id: position.id, subType: 'BOND' })
+        moved++
+      }
+    } catch (err) {
+      console.error(`Anleihen-Einstufung von ${position.identifier} fehlgeschlagen:`, err)
+    }
+  }
+  return moved
+}
+
+/**
  * Physisch besicherte Rohstoff-ETCs (Gold, Silber, Öl, Uran ...) führt Yahoo als "EQUITY", weshalb
  * sie beim Import als Aktie in "Aktien & ETFs" landen - sie halten aber echtes Metall/Rohöl, keine
  * Firmenanteile, und haben deshalb weder Sektor noch Land. Erkennungsmerkmal (nicht hartkodiert auf

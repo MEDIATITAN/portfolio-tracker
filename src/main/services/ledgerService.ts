@@ -1,5 +1,6 @@
 import * as positionsRepo from '../db/positionsRepo'
 import * as transactionsRepo from '../db/transactionsRepo'
+import type { Position } from '../../shared/types'
 
 /**
  * Berechnet Bestand + Durchschnitts-Einstandspreis einer Position aus ihrem Transaktions-Ledger
@@ -35,6 +36,52 @@ export function recomputePosition(positionId: number): void {
   const avgCostBasis = currentQuantity > 1e-9 ? totalCost / currentQuantity : null
 
   positionsRepo.updatePosition({ id: positionId, quantity: currentQuantity, avgCostBasis })
+}
+
+/**
+ * Führt Positionen zusammen, die dasselbe Wertpapier meinen.
+ *
+ * Warum das nötig ist: Die Wertpapiersuche liefert je nach Anfrage einen anderen BÖRSENPLATZ
+ * desselben Papiers - der iShares Core MSCI World kam aus einem Import als "IWDA.L" (London),
+ * aus einem anderen als "IWDA.AS" (Amsterdam). Der Bestand lag danach auf zwei Positionen, obwohl
+ * es dieselbe ISIN ist.
+ *
+ * Zusammengeführt wird ausschließlich über die ISIN - die ist je Wertpapier eindeutig. Über den
+ * Namen zu gehen wäre gefährlich: "Novo Nordisk A/S" heißt bei Yahoo sowohl die dänische Aktie als
+ * auch die US-Hinterlegungsaktie, die aber einen ganz anderen Kurs je Stück hat.
+ *
+ * Bestehen bleibt die Position mit den meisten Buchungen; deren Kürzel bestimmt künftig den
+ * Kursabruf. Die Buchungen der anderen werden umgehängt, danach wird per FIFO neu gerechnet.
+ */
+export function mergeDuplicatesByIsin(): { merged: number; removed: string[] } {
+  const positions = positionsRepo.listPositions()
+  const byIsin = new Map<string, Position[]>()
+  for (const p of positions) {
+    if (!p.isin || p.assetClass !== 'STOCK_ETF') continue
+    const list = byIsin.get(p.isin)
+    if (list) list.push(p)
+    else byIsin.set(p.isin, [p])
+  }
+
+  let merged = 0
+  const removed: string[] = []
+  for (const [, group] of byIsin) {
+    if (group.length < 2) continue
+    const sorted = [...group].sort(
+      (a, b) =>
+        transactionsRepo.countTransactionsForPosition(b.id) -
+        transactionsRepo.countTransactionsForPosition(a.id)
+    )
+    const keep = sorted[0]
+    for (const drop of sorted.slice(1)) {
+      transactionsRepo.moveTransactions(drop.id, keep.id)
+      positionsRepo.deletePosition(drop.id)
+      removed.push(`${drop.identifier ?? drop.name} -> ${keep.identifier ?? keep.name}`)
+      merged++
+    }
+    recomputePosition(keep.id)
+  }
+  return { merged, removed }
 }
 
 /**

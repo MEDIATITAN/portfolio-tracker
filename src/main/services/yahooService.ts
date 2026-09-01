@@ -45,7 +45,10 @@ function toSecurityType(quoteType: string): SecurityType | null {
   return null
 }
 
-export async function searchSymbols(query: string, assetClass: AssetClass): Promise<SymbolSearchResult[]> {
+export async function searchSymbols(
+  query: string,
+  assetClass: AssetClass
+): Promise<SymbolSearchResult[]> {
   const trimmed = query.trim()
   const wantedTypes = RELEVANT_QUOTE_TYPES[assetClass]
   if (!trimmed || wantedTypes.length === 0) return []
@@ -77,7 +80,10 @@ export interface HistoricalPricePoint {
 
 /** Tageskurse von fromDate bis heute. Wird nur beim Anlegen/Bearbeiten einer Position aufgerufen,
  *  nicht bei jedem Refresh - das ist ein größerer Abruf als ein normaler Kursabruf. */
-export async function getHistoricalPrices(identifier: string, fromDate: string): Promise<HistoricalPricePoint[]> {
+export async function getHistoricalPrices(
+  identifier: string,
+  fromDate: string
+): Promise<HistoricalPricePoint[]> {
   const result = await yahooFinance.chart(identifier, { period1: fromDate, interval: '1d' })
   const currency = result.meta.currency
   const out: HistoricalPricePoint[] = []
@@ -94,6 +100,10 @@ export interface TopHoldings {
   sectorWeightings: { sector: string; weight: number }[]
   /** Nur die größten Einzelpositionen (Yahoo liefert i.d.R. 10) - deckt NICHT den ganzen Fonds ab. */
   holdings: { symbol: string; weight: number }[]
+  /** Anteil Anleihen bzw. Aktien am Fondsvermögen, 0..1. Trennt Anleihen- von Aktienfonds:
+   *  nachgemessen liegt bondPosition bei Anleihen-ETFs bei ~1,0 und bei Aktien-ETFs bei 0. */
+  bondPosition: number
+  stockPosition: number
 }
 
 /** Fondszusammensetzung; null wenn das Papier kein Fonds ist (z.B. Einzelaktie oder physischer ETC). */
@@ -113,11 +123,18 @@ export async function getTopHoldings(identifier: string): Promise<TopHoldings | 
 
     const holdings: { symbol: string; weight: number }[] = []
     for (const h of th.holdings ?? []) {
-      if (h.symbol && typeof h.holdingPercent === 'number') holdings.push({ symbol: h.symbol, weight: h.holdingPercent })
+      if (h.symbol && typeof h.holdingPercent === 'number')
+        holdings.push({ symbol: h.symbol, weight: h.holdingPercent })
     }
 
-    if (sectorWeightings.length === 0 && holdings.length === 0) return null
-    return { sectorWeightings, holdings }
+    const asNumber = (v: unknown): number => (typeof v === 'number' ? v : 0)
+    const bondPosition = asNumber((th as { bondPosition?: unknown }).bondPosition)
+    const stockPosition = asNumber((th as { stockPosition?: unknown }).stockPosition)
+
+    // Reine Anleihenfonds liefern keine Sektorgewichte und keine Einzelpositionen - ohne die
+    // Bestandsanteile wären sie hier fälschlich als "kein Fonds" durchgefallen.
+    if (sectorWeightings.length === 0 && holdings.length === 0 && bondPosition === 0) return null
+    return { sectorWeightings, holdings, bondPosition, stockPosition }
   } catch {
     return null
   }
