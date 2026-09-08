@@ -4,6 +4,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { PositionsPage } from './pages/PositionsPage'
 import { PnlPage } from './pages/PnlPage'
 import { TransactionsPage } from './pages/TransactionsPage'
+import { BudgetPage } from './pages/BudgetPage'
 import { Sidebar } from './components/layout/Sidebar'
 import { ThemeProvider } from './lib/ThemeContext'
 import type { ClassFilter, Page } from './lib/navigation'
@@ -36,14 +37,19 @@ function AppShell(): React.JSX.Element {
         onNavigatePositions={() => setPage('positions')}
         onNavigatePnl={() => setPage('pnl')}
         onNavigateTransactions={() => setPage('transactions')}
+        onNavigateBudget={() => setPage('budget')}
       />
       <main className="min-w-0 flex-1 overflow-y-auto">
         {page === 'dashboard' && (
-          <DashboardPage classFilter={classFilter} onNavigateToPositions={() => setPage('positions')} />
+          <DashboardPage
+            classFilter={classFilter}
+            onNavigateToPositions={() => setPage('positions')}
+          />
         )}
         {page === 'positions' && <PositionsPage />}
         {page === 'pnl' && <PnlPage />}
         {page === 'transactions' && <TransactionsPage />}
+        {page === 'budget' && <BudgetPage />}
       </main>
     </div>
   )

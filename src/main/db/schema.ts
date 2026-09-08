@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS positions (
   sector          TEXT,
   region          TEXT,
   sub_type        TEXT CHECK (sub_type IN ('CASH','BOND','REAL_ESTATE','OTHER')),
+  cash_type       TEXT CHECK (cash_type IN ('CHECKING','SAVINGS','PHYSICAL','FOREIGN','WORK')),
   purchase_date   TEXT,
   notes           TEXT,
   created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -48,6 +49,16 @@ CREATE TABLE IF NOT EXISTS historical_prices (
 );
 CREATE INDEX IF NOT EXISTS idx_historical_prices_identifier ON historical_prices(identifier);
 
+CREATE TABLE IF NOT EXISTS intraday_prices (
+  identifier      TEXT NOT NULL,
+  asset_class     TEXT NOT NULL,
+  ts              TEXT NOT NULL,
+  price           REAL NOT NULL,
+  currency        TEXT NOT NULL,
+  PRIMARY KEY (identifier, ts)
+);
+CREATE INDEX IF NOT EXISTS idx_intraday_prices_ts ON intraday_prices(ts);
+
 CREATE TABLE IF NOT EXISTS historical_fx_rates (
   base            TEXT NOT NULL,
   quote           TEXT NOT NULL,
@@ -71,6 +82,24 @@ CREATE TABLE IF NOT EXISTS snapshot_items (
 );
 CREATE INDEX IF NOT EXISTS idx_snapshot_items_snapshot_id ON snapshot_items(snapshot_id);
 CREATE INDEX IF NOT EXISTS idx_value_snapshots_taken_at ON value_snapshots(taken_at);
+
+-- Monatliche Einnahmen und Fixkosten. Bewusst OHNE Bezug zu den Positionen: hier geht es um
+-- den laufenden Geldfluss, nicht um Vermögen. Ein Gehalt ist kein Vermögenswert.
+-- Die Spalte heißt period und nicht interval - letzteres ist in manchen SQL-Dialekten ein
+-- Schlüsselwort, und der Name soll auch bei einem späteren Wechsel tragen.
+CREATE TABLE IF NOT EXISTS budget_items (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  type        TEXT NOT NULL CHECK (type IN ('INCOME','EXPENSE')),
+  name        TEXT NOT NULL,
+  amount      REAL NOT NULL,
+  currency    TEXT NOT NULL DEFAULT 'EUR',
+  period      TEXT NOT NULL DEFAULT 'MONTHLY' CHECK (period IN ('MONTHLY','QUARTERLY','YEARLY')),
+  category    TEXT,
+  active      INTEGER NOT NULL DEFAULT 1,
+  notes       TEXT,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
 
 CREATE TABLE IF NOT EXISTS settings (
   key    TEXT PRIMARY KEY,

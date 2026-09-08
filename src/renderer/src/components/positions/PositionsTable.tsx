@@ -1,16 +1,18 @@
 import { Fragment, useState } from 'react'
 import type { FxRate, PriceCacheEntry, Position, TransactionWithPosition } from '@shared/types'
 import { computeAllPositionValues, findFxRate } from '@shared/valueCalc'
+import { isBondIdentifier } from '@shared/bonds'
 import { displayClass, DISPLAY_CLASS_ORDER } from '@shared/displayClass'
 import {
   ASSET_CLASS_LABELS,
   CASH_SUB_TYPE_LABELS,
+  CASH_TYPE_LABELS,
   formatDate,
   formatEur,
   formatMoney,
   formatNumber
 } from '../../lib/format'
-import { useTransactions } from '../../lib/queries'
+import { useDeleteTransaction, useTransactions } from '../../lib/queries'
 
 interface PositionsTableProps {
   positions: Position[]
@@ -30,6 +32,30 @@ const QUANTITY_UNIT_SUFFIX: Record<string, string> = {
 }
 
 /**
+ * Anleihen notieren in Prozent ihres Nennwerts. Intern speichert die App den Kurs je EINER
+ * Einheit Nennwert (0,9227), damit Menge mal Kurs den Wert ergibt - angezeigt wird aber der
+ * Prozentkurs (92,27 %), so wie er beim Broker und auf der Abrechnung steht.
+ *
+ * Gerechnet wird aus dem Wert in der MARKTwährung, nicht aus dem Eurokurs: eine
+ * US-Staatsanleihe notiert in Dollar, ihr Prozentkurs ist aber derselbe.
+ */
+function bondPercent(quantity: number, valueNative: number | null): number | null {
+  if (valueNative === null || quantity <= 0) return null
+  return (valueNative / quantity) * 100
+}
+
+function formatPercent(value: number): string {
+  return `${value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 3 })} %`
+}
+
+/** Klammerzusatz hinter dem Namen: die feine Kontoart hat Vorrang vor der groben Unterkategorie. */
+function categoryLabel(position: Position): string | null {
+  if (position.cashType) return CASH_TYPE_LABELS[position.cashType]
+  if (position.subType) return CASH_SUB_TYPE_LABELS[position.subType]
+  return null
+}
+
+/**
  * Vollständig verkauft: Bestand null, aber es gab Buchungen. Solche Positionen werden in der Liste
  * ausgeblendet - sie sind kein Bestand mehr. Gelöscht werden sie NICHT: PnL und Verlauf rechnen auf
  * ihren Buchungen, ohne sie wären realisierte Gewinne und die Kaufhistorie verloren.
@@ -43,9 +69,13 @@ function isSoldOut(position: Position): boolean {
 
 /** Die Buchungen einer Position, chronologisch - die Reihenfolge, in der auch FIFO rechnet. */
 function TransactionDetails({
-  transactions
+  transactions,
+  onDelete,
+  deletingId
 }: {
   transactions: TransactionWithPosition[]
+  onDelete: (transaction: TransactionWithPosition) => void
+  deletingId: number | null
 }): React.JSX.Element {
   const buys = transactions.filter((t) => t.type === 'BUY')
   const buyQuantity = buys.reduce((sum, t) => sum + t.quantity, 0)
@@ -62,6 +92,7 @@ function TransactionDetails({
             <th className="pb-1 text-right font-medium">Kurs</th>
             <th className="pb-1 text-right font-medium">Summe</th>
             <th className="pb-1 pl-4 font-medium">Herkunft</th>
+            <th className="pb-1" />
           </tr>
         </thead>
         <tbody className="text-slate-700 dark:text-slate-300">
@@ -85,6 +116,21 @@ function TransactionDetails({
                 {formatMoney(t.quantity * t.price, t.currency)}
               </td>
               <td className="py-1 pl-4 text-slate-400 dark:text-slate-500">{t.broker ?? '–'}</td>
+              <td className="py-1 pl-2 text-right">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    // Sonst klappt der Klick zusätzlich die Buchungsliste wieder zu.
+                    e.stopPropagation()
+                    onDelete(t)
+                  }}
+                  disabled={deletingId === t.id}
+                  title="Diese Buchung löschen"
+                  className="rounded px-1.5 py-0.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40 dark:text-slate-500 dark:hover:bg-red-950 dark:hover:text-red-400"
+                >
+                  ✕
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -105,6 +151,7 @@ function TransactionDetails({
                 {formatMoney(buyCost, buys[0].currency)}
               </td>
               <td />
+              <td />
             </tr>
           </tfoot>
         )}
@@ -121,6 +168,24 @@ export function PositionsTable({
   onDelete
 }: PositionsTableProps): React.JSX.Element {
   const { data: transactions } = useTransactions()
+  const deleteTransaction = useDeleteTransaction()
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+
+  function handleDeleteTransaction(t: TransactionWithPosition): void {
+    const summe = formatMoney(t.quantity * t.price, t.currency)
+    const art = t.type === 'BUY' ? 'Kauf' : 'Verkauf'
+    const ok = confirm(
+      `${art} vom ${formatDate(t.date)} über ${formatNumber(t.quantity)} zu ${formatMoney(t.price, t.currency)} (${summe}) löschen?
+
+` +
+        'Bestand und Einstandspreis von "' +
+        t.positionName +
+        '" werden danach neu berechnet.'
+    )
+    if (!ok) return
+    setDeletingId(t.id)
+    deleteTransaction.mutate(t.id, { onSettled: () => setDeletingId(null) })
+  }
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [showSoldOut, setShowSoldOut] = useState(false)
 
@@ -173,6 +238,7 @@ export function PositionsTable({
                     position,
                     valueEur,
                     priceEur,
+                    valueNative,
                     avgCostBasisEur,
                     gainLossEur,
                     stale,
@@ -192,6 +258,8 @@ export function PositionsTable({
                     const expandable = positionTransactions.length > 0
                     const expanded = expandedId === position.id
                     const buyCount = positionTransactions.filter((t) => t.type === 'BUY').length
+                    const isBond = isBondIdentifier(position.identifier)
+                    const percent = isBond ? bondPercent(position.quantity, valueNative) : null
 
                     return (
                       <Fragment key={position.id}>
@@ -216,9 +284,9 @@ export function PositionsTable({
                                 verkauft
                               </span>
                             )}
-                            {position.subType && (
+                            {categoryLabel(position) && (
                               <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">
-                                ({CASH_SUB_TYPE_LABELS[position.subType]})
+                                ({categoryLabel(position)})
                               </span>
                             )}
                           </td>
@@ -249,7 +317,7 @@ export function PositionsTable({
                                 className={stale ? 'text-amber-600 dark:text-amber-500' : ''}
                                 title={fetchError ?? undefined}
                               >
-                                {formatEur(priceEur)}
+                                {percent !== null ? formatPercent(percent) : formatEur(priceEur)}
                                 {assetClass === 'COMMODITY' ? ' /oz' : ''}
                                 {stale ? ' *' : ''}
                               </span>
@@ -260,7 +328,9 @@ export function PositionsTable({
                             )}
                           </td>
                           <td className="px-3 py-2">
-                            {formatEur(avgCostBasisEur)}
+                            {isBond && position.avgCostBasis !== null
+                              ? formatPercent(position.avgCostBasis * 100)
+                              : formatEur(avgCostBasisEur)}
                             {buyCount > 1 ? (
                               <span className="block text-xs text-slate-400 dark:text-slate-500">
                                 Ø aus {buyCount} Käufen
@@ -310,7 +380,11 @@ export function PositionsTable({
                         {expanded && (
                           <tr>
                             <td colSpan={7} className="p-0">
-                              <TransactionDetails transactions={positionTransactions} />
+                              <TransactionDetails
+                                transactions={positionTransactions}
+                                onDelete={handleDeleteTransaction}
+                                deletingId={deleteTransaction.isPending ? deletingId : null}
+                              />
                             </td>
                           </tr>
                         )}

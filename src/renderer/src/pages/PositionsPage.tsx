@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import type { NewPosition, Position, ResetProgressEvent } from '@shared/types'
+import type { NewPosition, Position } from '@shared/types'
 import { PositionForm } from '../components/positions/PositionForm'
 import { PositionsTable } from '../components/positions/PositionsTable'
-import { ResetProgressPanel, type ResetEntry } from '../components/positions/ResetProgressPanel'
+import { ResetProgressPanel } from '../components/positions/ResetProgressPanel'
 import { CsvImportPanel } from '../components/positions/CsvImportPanel'
 import { RefreshButton } from '../components/common/RefreshButton'
 import { LastUpdatedBadge } from '../components/common/LastUpdatedBadge'
 import { shouldAutoRefresh } from '../lib/autoRefresh'
-import { api } from '../lib/api'
+import { useResetRun } from '../lib/useResetRun'
 import {
   useCreatePosition,
   useDeleteAllPositions,
@@ -20,8 +20,6 @@ import {
   useUpdatePosition
 } from '../lib/queries'
 
-type ResetPhase = 'idle' | 'running' | 'done' | 'fading'
-
 export function PositionsPage(): React.JSX.Element {
   const { data: positions, isLoading, error } = usePositions()
   const { data: priceCache } = usePriceCache()
@@ -32,13 +30,11 @@ export function PositionsPage(): React.JSX.Element {
   const refreshPrices = useRefreshPrices()
   const resetSnapshots = useResetSnapshots()
   const deleteAllPositions = useDeleteAllPositions()
+  const resetRun = useResetRun()
 
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Position | null>(null)
   const formRef = useRef<HTMLDivElement>(null)
-  const [resetPhase, setResetPhase] = useState<ResetPhase>('idle')
-  const [resetEntries, setResetEntries] = useState<Map<number, ResetEntry>>(new Map())
-  const [resetError, setResetError] = useState<string | null>(null)
 
   // Kurse automatisch aktualisieren, wenn auf diesen Tab gewechselt wird (mit Bremse gegen
   // API-Spam bei schnellem Hin- und Herklicken - siehe shouldAutoRefresh).
@@ -47,51 +43,13 @@ export function PositionsPage(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Fortschritt der laufenden Zurücksetzen-Aktion (siehe handleReset) - eine Meldung pro
-  // Position vom Main-Prozess, während dort die historischen Daten neu geprüft/nachgeladen werden.
-  useEffect(() => {
-    return api.snapshots.onResetProgress((event: ResetProgressEvent) => {
-      setResetEntries((prev) => {
-        const next = new Map(prev)
-        next.set(event.positionId, { id: event.positionId, name: event.name, status: event.status })
-        return next
-      })
-    })
-  }, [])
-
-  // Nach "fertig" kurz stehen lassen, dann ausblenden (opacity-Übergang), dann aus dem DOM nehmen.
-  useEffect(() => {
-    if (resetPhase !== 'done') return
-    const toFading = setTimeout(() => setResetPhase('fading'), resetError ? 6000 : 1800)
-    return () => clearTimeout(toFading)
-  }, [resetPhase, resetError])
-
-  useEffect(() => {
-    if (resetPhase !== 'fading') return
-    const toIdle = setTimeout(() => {
-      setResetPhase('idle')
-      setResetEntries(new Map())
-      setResetError(null)
-    }, 500)
-    return () => clearTimeout(toIdle)
-  }, [resetPhase])
-
   function handleReset(): void {
     if (resetSnapshots.isPending) return
     const ok = confirm(
       'Der bisherige Verlauf des Gesamtvermögens wird gelöscht und aus den aktuell eingetragenen Positionen neu berechnet. Fortfahren?'
     )
     if (!ok) return
-    setResetError(null)
-    setResetEntries(new Map())
-    setResetPhase('running')
-    resetSnapshots.mutate(undefined, {
-      onSuccess: () => setResetPhase('done'),
-      onError: (err) => {
-        setResetError(err instanceof Error ? err.message : 'Unbekannter Fehler')
-        setResetPhase('done')
-      }
-    })
+    resetRun.start((callbacks) => resetSnapshots.mutate(undefined, callbacks))
   }
 
   function closeForm(): void {
@@ -152,7 +110,7 @@ export function PositionsPage(): React.JSX.Element {
             />
             <LastUpdatedBadge
               updatedCount={refreshPrices.data?.updatedCount ?? null}
-              failedCount={refreshPrices.data?.failedIdentifiers.length ?? 0}
+              failedIdentifiers={refreshPrices.data?.failedIdentifiers ?? []}
             />
           </div>
           <button
@@ -184,12 +142,12 @@ export function PositionsPage(): React.JSX.Element {
 
       <CsvImportPanel />
 
-      {resetPhase !== 'idle' && (
+      {resetRun.visible && (
         <ResetProgressPanel
-          entries={[...resetEntries.values()]}
-          allDone={resetPhase === 'done' || resetPhase === 'fading'}
-          error={resetError}
-          fading={resetPhase === 'fading'}
+          entries={resetRun.entries}
+          allDone={resetRun.allDone}
+          error={resetRun.error}
+          fading={resetRun.fading}
         />
       )}
 

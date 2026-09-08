@@ -5,7 +5,15 @@ import * as yahooService from '../services/yahooService'
 import * as coingeckoService from '../services/coingeckoService'
 import * as priceService from '../services/priceService'
 import * as wknService from '../services/wknService'
-import type { AssetClass, NewPosition, PositionUpdate, SymbolSearchResult } from '../../shared/types'
+import * as onvistaService from '../services/onvistaService'
+import { bondIdentifier } from '../../shared/bonds'
+import type { DisplayClass } from '../../shared/displayClass'
+import type {
+  AssetClass,
+  NewPosition,
+  PositionUpdate,
+  SymbolSearchResult
+} from '../../shared/types'
 
 export function registerPositionsHandlers(): void {
   ipcMain.handle('positions:list', () => positionsRepo.listPositions())
@@ -35,7 +43,25 @@ export function registerPositionsHandlers(): void {
     snapshotsRepo.deleteAllSnapshots()
   })
 
-  ipcMain.handle('positions:lookupSymbol', async (_event, assetClass: AssetClass, query: string) => {
+  ipcMain.handle('positions:lookupSymbol', async (_event, kind: DisplayClass, query: string) => {
+    // Anleihen: onvista findet sie über WKN, ISIN oder Namen. Yahoo führt einzelne Anleihen
+    // überhaupt nicht - weder über ISIN noch über die Kürzel der deutschen Börsenplätze.
+    if (kind === 'BOND') {
+      const hits = await onvistaService.searchBonds(query)
+      return hits.map((h): SymbolSearchResult => ({
+        identifier: bondIdentifier(h.isin),
+        symbol: h.wkn,
+        name: h.name,
+        exchange: null,
+        securityType: null,
+        // Währung und Kurs kommen erst beim Abruf der Notierung - die Suche gibt sie nicht heraus.
+        currency: null,
+        sector: null,
+        region: null
+      }))
+    }
+
+    const assetClass: AssetClass = kind
     if (assetClass === 'CRYPTO') return coingeckoService.searchCoins(query)
     if (assetClass === 'COMMODITY') return yahooService.searchSymbols(query, assetClass)
 
@@ -48,12 +74,15 @@ export function registerPositionsHandlers(): void {
       const resolved = await wknService.resolveWknToTicker(query.trim())
       if (!resolved) return []
       const byTicker = await yahooService.searchSymbols(resolved.ticker, assetClass)
-      const results: SymbolSearchResult[] = byTicker.length > 0 ? byTicker : await yahooService.searchSymbols(resolved.name, assetClass)
+      const results: SymbolSearchResult[] =
+        byTicker.length > 0 ? byTicker : await yahooService.searchSymbols(resolved.name, assetClass)
       return results
     }
 
     return []
   })
 
-  ipcMain.handle('positions:getAssetProfile', (_event, identifier: string) => yahooService.getAssetProfile(identifier))
+  ipcMain.handle('positions:getAssetProfile', (_event, identifier: string) =>
+    yahooService.getAssetProfile(identifier)
+  )
 }

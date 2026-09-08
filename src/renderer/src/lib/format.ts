@@ -1,4 +1,4 @@
-import type { CashSubType } from '@shared/types'
+import type { CashSubType, CashType } from '@shared/types'
 import type { DisplayClass } from '@shared/displayClass'
 
 const eurFormatter = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
@@ -57,6 +57,14 @@ export const ASSET_CLASS_LABELS: Record<DisplayClass, string> = {
   CRYPTO: 'Kryptowährungen',
   COMMODITY: 'Rohstoffe & Edelmetalle',
   CASH_OTHER: 'Cash & Sonstiges'
+}
+
+export const CASH_TYPE_LABELS: Record<CashType, string> = {
+  CHECKING: 'Girokonto',
+  SAVINGS: 'Tagesgeldkonto',
+  PHYSICAL: 'Bargeld',
+  FOREIGN: 'Fremdwährung',
+  WORK: 'Arbeit'
 }
 
 export const CASH_SUB_TYPE_LABELS: Record<CashSubType, string> = {

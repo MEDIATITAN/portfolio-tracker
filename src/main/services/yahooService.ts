@@ -95,6 +95,30 @@ export async function getHistoricalPrices(
   return out
 }
 
+/**
+ * Stundenkurse ab `fromMs`.
+ *
+ * Yahoo liefert Intraday-Punkte NUR während der Börsenzeiten - nachts und am Wochenende gibt es
+ * schlicht keine, weil dort nicht gehandelt wird. Das ist keine Lücke in den Daten, sondern der
+ * Zustand selbst: der Wert einer Aktie bewegt sich in dieser Zeit nicht.
+ */
+export async function getIntradayPrices(
+  identifier: string,
+  fromMs: number
+): Promise<{ ts: string; price: number; currency: string }[]> {
+  const result = await yahooFinance.chart(identifier, {
+    period1: new Date(fromMs),
+    interval: '1h'
+  })
+  const currency = result.meta.currency
+  const out: { ts: string; price: number; currency: string }[] = []
+  for (const q of result.quotes) {
+    if (typeof q.close !== 'number' || !currency) continue
+    out.push({ ts: q.date.toISOString(), price: q.close, currency })
+  }
+  return out
+}
+
 export interface TopHoldings {
   /** Sektorgewichte des Fonds, 0..1, summieren auf ~1 (vollständige Angabe von Yahoo). */
   sectorWeightings: { sector: string; weight: number }[]

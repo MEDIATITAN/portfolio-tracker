@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import type {
-  AssetClass,
   CashSubType,
+  CashType,
   NewPosition,
   Position,
   QuantityUnit,
   SymbolSearchResult
 } from '@shared/types'
 import { COMMODITY_PRESETS, commodityPricingUnit } from '@shared/commodities'
+import { bondIsin } from '@shared/bonds'
+import { displayClass, DISPLAY_CLASS_ORDER, type DisplayClass } from '@shared/displayClass'
 import { CURRENCY_ORDER, SUPPORTED_CURRENCIES } from '@shared/currencies'
-import { ASSET_CLASS_LABELS, CASH_SUB_TYPE_LABELS } from '../../lib/format'
+import { ASSET_CLASS_LABELS, CASH_SUB_TYPE_LABELS, CASH_TYPE_LABELS } from '../../lib/format'
 import { inputClass, labelClass } from './formStyles'
 import { SymbolSearchInput } from './SymbolSearchInput'
 
@@ -20,8 +22,63 @@ interface PositionFormProps {
   submitting: boolean
 }
 
-const ASSET_CLASSES: AssetClass[] = ['STOCK_ETF', 'CRYPTO', 'COMMODITY', 'CASH_OTHER']
-const CASH_SUB_TYPES: CashSubType[] = ['CASH', 'BOND', 'REAL_ESTATE', 'OTHER']
+/**
+ * Anleihen stehen als eigener Punkt in der Auswahl, obwohl es in der Datenbank keine solche
+ * Anlageklasse gibt: gespeichert werden sie als STOCK_ETF mit sub_type='BOND' - siehe
+ * shared/displayClass.ts. Anleihen-ETFs, die die App selbst so einstuft, erscheinen hier
+ * ebenfalls als "Anleihen" und behalten diese Einstufung beim Speichern.
+ */
+function toAssetFields(kind: DisplayClass): Pick<NewPosition, 'assetClass' | 'subType'> {
+  if (kind === 'BOND') return { assetClass: 'STOCK_ETF', subType: 'BOND' }
+  return { assetClass: kind, subType: null }
+}
+/**
+ * Ein einziges Auswahlfeld für Cash & Sonstiges statt zweier verschachtelter: intern schreibt es
+ * je nach Wahl sub_type (Sonstiges) oder cash_type (Girokonto/Tagesgeld/Bargeld/Arbeit).
+ * "Cash" als grober Sammelwert entfällt dadurch - wer ihn bisher gesetzt hatte, landet in
+ * "Nicht zugeordnet" und kann die Kontoart einmalig nachtragen. Anleihe und Immobilie werden
+ * nicht mehr angeboten, bleiben bei bestehenden Positionen aber erhalten und wählbar.
+ */
+type CashCategory = CashType | CashSubType | 'UNSET'
+
+const CASH_CATEGORIES: CashCategory[] = [
+  'UNSET',
+  'CHECKING',
+  'SAVINGS',
+  'PHYSICAL',
+  'FOREIGN',
+  'WORK',
+  'OTHER'
+]
+
+/** Auch die nicht mehr angebotenen Werte brauchen ein Label: bestehende Positionen behalten ihre
+ *  Kategorie und sollen im Formular lesbar bleiben, statt stillschweigend umgestellt zu werden. */
+const CASH_CATEGORY_LABELS: Record<CashCategory, string> = {
+  UNSET: 'Nicht zugeordnet',
+  CHECKING: CASH_TYPE_LABELS.CHECKING,
+  SAVINGS: CASH_TYPE_LABELS.SAVINGS,
+  PHYSICAL: CASH_TYPE_LABELS.PHYSICAL,
+  FOREIGN: CASH_TYPE_LABELS.FOREIGN,
+  WORK: CASH_TYPE_LABELS.WORK,
+  CASH: CASH_SUB_TYPE_LABELS.CASH,
+  BOND: CASH_SUB_TYPE_LABELS.BOND,
+  REAL_ESTATE: CASH_SUB_TYPE_LABELS.REAL_ESTATE,
+  OTHER: CASH_SUB_TYPE_LABELS.OTHER
+}
+
+const CASH_TYPE_VALUES = new Set<string>(['CHECKING', 'SAVINGS', 'PHYSICAL', 'FOREIGN', 'WORK'])
+
+function toCashCategory(form: Pick<NewPosition, 'cashType' | 'subType'>): CashCategory {
+  if (form.cashType) return form.cashType
+  if (form.subType && form.subType !== 'CASH') return form.subType
+  return 'UNSET'
+}
+
+function fromCashCategory(value: CashCategory): Pick<NewPosition, 'cashType' | 'subType'> {
+  if (CASH_TYPE_VALUES.has(value)) return { cashType: value as CashType, subType: 'CASH' }
+  if (value === 'UNSET') return { cashType: null, subType: null }
+  return { cashType: null, subType: value as CashSubType }
+}
 const QUANTITY_UNIT_LABELS: Record<QuantityUnit, string> = {
   GRAM: 'Gramm (g)',
   KG: 'Kilogramm (kg)',
@@ -45,6 +102,7 @@ function emptyForm(): NewPosition {
     sector: null,
     region: null,
     subType: null,
+    cashType: null,
     purchaseDate: null,
     notes: null
   }
@@ -66,6 +124,7 @@ function toNewPosition(position: Position): NewPosition {
     sector: position.sector,
     region: position.region,
     subType: position.subType,
+    cashType: position.cashType,
     purchaseDate: position.purchaseDate,
     notes: position.notes
   }
@@ -88,7 +147,13 @@ export function PositionForm({
     setInvestedText(null)
   }, [initial])
 
+  const formClass = displayClass(form)
+  const isBond = formClass === 'BOND'
   const isCashOther = form.assetClass === 'CASH_OTHER'
+  const cashCategory = toCashCategory(form)
+  const cashCategories = CASH_CATEGORIES.includes(cashCategory)
+    ? CASH_CATEGORIES
+    : [...CASH_CATEGORIES, cashCategory]
   const isCommodity = form.assetClass === 'COMMODITY'
   // Bestand/Einstandspreis werden aus dem Transaktions-Ledger berechnet (siehe ledgerService.ts),
   // sobald eine Position Buchungen hat (CSV-Import oder migrierter Altbestand) - dann sind diese
@@ -153,6 +218,20 @@ export function PositionForm({
       currency: result.currency ?? prev.currency
     }))
 
+    // Anleihen: die ISIN steckt im Identifier, die Währung gibt erst die Notierung her (eine
+    // US-Staatsanleihe notiert in Dollar, eine Bundesanleihe in Euro).
+    const isin = bondIsin(result.identifier)
+    if (isin) {
+      setForm((prev) => ({ ...prev, isin }))
+      const requestedIdentifier = result.identifier
+      window.api.prices.getQuotes('BOND', [requestedIdentifier]).then((quotes) => {
+        const currency = quotes[0]?.currency
+        if (!currency) return
+        setForm((prev) => (prev.identifier === requestedIdentifier ? { ...prev, currency } : prev))
+      })
+      return
+    }
+
     // Land/Region kommt nicht aus der Suche selbst (Yahoo liefert das nur über einen separaten
     // Call) - für Einzelaktien direkt nachladen. ETFs bleiben bewusst ohne Land (siehe
     // sector/regionBreakdown: die laufen ohnehin als "ETF/Diversifiziert").
@@ -180,6 +259,15 @@ export function PositionForm({
     }))
   }
 
+  // Bei Anleihen wird der intern gespeicherte Preis je Einheit Nennwert wieder als Prozentkurs
+  // gezeigt - so, wie er auch beim Broker in der Abrechnung steht.
+  const costBasisDisplay =
+    form.avgCostBasis === null
+      ? ''
+      : isBond
+        ? Number((form.avgCostBasis * 100).toFixed(6))
+        : form.avgCostBasis
+
   const commodityPricing = isCommodity ? commodityPricingUnit(form.identifier) : null
   const isWeighableCommodity = commodityPricing !== null
   const availableUnits: QuantityUnit[] = commodityPricing
@@ -203,10 +291,12 @@ export function PositionForm({
         Anlageklasse
         <select
           className={inputClass}
-          value={form.assetClass}
-          onChange={(e) => update('assetClass', e.target.value as AssetClass)}
+          value={formClass}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, ...toAssetFields(e.target.value as DisplayClass) }))
+          }
         >
-          {ASSET_CLASSES.map((ac) => (
+          {DISPLAY_CLASS_ORDER.map((ac) => (
             <option key={ac} value={ac}>
               {ASSET_CLASS_LABELS[ac]}
             </option>
@@ -227,18 +317,29 @@ export function PositionForm({
 
       {(form.assetClass === 'STOCK_ETF' || form.assetClass === 'CRYPTO') && (
         <label className={labelClass}>
-          {form.assetClass === 'CRYPTO' ? 'Krypto suchen' : 'Aktie / ETF suchen'}
+          {isBond
+            ? 'Anleihe suchen'
+            : form.assetClass === 'CRYPTO'
+              ? 'Krypto suchen'
+              : 'Aktie / ETF suchen'}
           <SymbolSearchInput
-            assetClass={form.assetClass}
+            kind={formClass}
             value={form.symbol ?? ''}
             onChangeText={handleSymbolText}
             onSelect={handleSymbolSelect}
             placeholder={
-              form.assetClass === 'CRYPTO'
-                ? 'z.B. Bitcoin, Ethereum…'
-                : 'z.B. Apple, SAP, oder WKN…'
+              isBond
+                ? 'WKN, ISIN oder Name, z.B. 110260…'
+                : form.assetClass === 'CRYPTO'
+                  ? 'z.B. Bitcoin, Ethereum…'
+                  : 'z.B. Apple, SAP, oder WKN…'
             }
           />
+          {isBond && (
+            <span className="mt-1 block text-xs font-normal text-slate-500 dark:text-slate-400">
+              Kurse kommen von onvista. Yahoo führt einzelne Anleihen nicht.
+            </span>
+          )}
         </label>
       )}
 
@@ -288,12 +389,14 @@ export function PositionForm({
           Unterkategorie
           <select
             className={inputClass}
-            value={form.subType ?? 'CASH'}
-            onChange={(e) => update('subType', e.target.value as CashSubType)}
+            value={cashCategory}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, ...fromCashCategory(e.target.value as CashCategory) }))
+            }
           >
-            {CASH_SUB_TYPES.map((st) => (
-              <option key={st} value={st}>
-                {CASH_SUB_TYPE_LABELS[st]}
+            {cashCategories.map((c) => (
+              <option key={c} value={c}>
+                {CASH_CATEGORY_LABELS[c]}
               </option>
             ))}
           </select>
@@ -302,7 +405,8 @@ export function PositionForm({
 
       {!isCashOther && (
         <label className={labelClass}>
-          Menge{isLedgerBacked && ' (aus Verlauf berechnet)'}
+          {isBond ? 'Nennwert' : 'Menge'}
+          {isLedgerBacked && ' (aus Verlauf berechnet)'}
           <div className="flex gap-2">
             <input
               type="number"
@@ -379,17 +483,27 @@ export function PositionForm({
 
       {!isCashOther && (
         <label className={labelClass}>
-          Einstandspreis{isLedgerBacked ? ' (aus Verlauf berechnet)' : ' (optional)'}, pro{' '}
-          {commodityPricing ? QUANTITY_UNIT_LABELS[form.quantityUnit ?? commodityPricing] : 'Stück'}
+          {isBond ? 'Kaufkurs' : 'Einstandspreis'}
+          {isLedgerBacked ? ' (aus Verlauf berechnet)' : ' (optional)'}
+          {isBond
+            ? ' in % vom Nennwert'
+            : `, pro ${
+                commodityPricing
+                  ? QUANTITY_UNIT_LABELS[form.quantityUnit ?? commodityPricing]
+                  : 'Stück'
+              }`}
           <input
             type="number"
             step="any"
             className={inputClass}
-            value={form.avgCostBasis ?? ''}
+            value={costBasisDisplay}
             onChange={(e) => {
               // Wieder der Stückpreis ist maßgeblich - der Gesamtbetrag rechnet sich daraus.
               setInvestedText(null)
-              update('avgCostBasis', e.target.value ? Number(e.target.value) : null)
+              const raw = e.target.value ? Number(e.target.value) : null
+              // Anleihen notieren in Prozent des Nennwerts; gespeichert wird wie überall der
+              // Preis je EINER Einheit, damit Menge mal Kurs den Wert ergibt.
+              update('avgCostBasis', raw === null ? null : isBond ? raw / 100 : raw)
             }}
             disabled={isLedgerBacked}
           />

@@ -1,6 +1,13 @@
+import type { DisplayClass } from '@shared/displayClass'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
-import type { AssetClass, BrokerFormat, NewPosition, PositionUpdate } from '@shared/types'
+import type {
+  BrokerFormat,
+  BudgetItemUpdate,
+  NewBudgetItem,
+  NewPosition,
+  PositionUpdate
+} from '@shared/types'
 
 export function usePositions() {
   return useQuery({ queryKey: ['positions'], queryFn: () => api.positions.list() })
@@ -77,29 +84,83 @@ export function useEtfComposition() {
  * Kurse zu den aktuellen Suchtreffern. Bewusst als EIGENE Abfrage nach der Suche, nicht in einem
  * Rutsch: der Kursabruf dauert rund eine Sekunde, die Vorschlagsliste soll aber sofort erscheinen.
  */
-export function useSearchQuotes(assetClass: AssetClass, identifiers: string[]) {
+export function useSearchQuotes(kind: DisplayClass, identifiers: string[]) {
   return useQuery({
-    queryKey: ['searchQuotes', assetClass, identifiers.join(',')],
-    queryFn: () => api.prices.getQuotes(assetClass, identifiers),
+    queryKey: ['searchQuotes', kind, identifiers.join(',')],
+    queryFn: () => api.prices.getQuotes(kind, identifiers),
     enabled: identifiers.length > 0,
     staleTime: 60_000
   })
 }
 
-export function useSymbolSearch(assetClass: AssetClass, query: string) {
+export function useSymbolSearch(kind: DisplayClass, query: string) {
   const trimmed = query.trim()
   return useQuery({
-    queryKey: ['symbolSearch', assetClass, trimmed],
-    queryFn: () => api.positions.lookupSymbol(assetClass, trimmed),
+    queryKey: ['symbolSearch', kind, trimmed],
+    queryFn: () => api.positions.lookupSymbol(kind, trimmed),
     enabled: trimmed.length >= 2,
     staleTime: 60_000
   })
+}
+
+/**
+ * Löscht eine einzelne Buchung. Danach müssen BEIDE Listen neu geladen werden: die Buchungen
+ * selbst und die Positionen, deren Bestand und Einstandspreis sich dadurch ändern.
+ */
+export function useDeleteTransaction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.transactions.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+      queryClient.invalidateQueries({ queryKey: ['positions'] })
+    }
+  })
+}
+
+export function useBudgetItems() {
+  return useQuery({ queryKey: ['budget'], queryFn: () => api.budget.list() })
+}
+
+/** Alle Budget-Änderungen laden dieselbe Liste neu - sie ist die einzige Quelle der Seite. */
+function useBudgetMutation<TInput>(fn: (input: TInput) => Promise<unknown>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget'] })
+  })
+}
+
+export function useCreateBudgetItem() {
+  return useBudgetMutation((input: NewBudgetItem) => api.budget.create(input))
+}
+
+export function useUpdateBudgetItem() {
+  return useBudgetMutation((input: BudgetItemUpdate) => api.budget.update(input))
+}
+
+export function useDeleteBudgetItem() {
+  return useBudgetMutation((id: number) => api.budget.delete(id))
 }
 
 export function useResetSnapshots() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: () => api.snapshots.reset(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['snapshots'] })
+      queryClient.invalidateQueries({ queryKey: ['historical'] })
+      queryClient.invalidateQueries({ queryKey: ['priceCache'] })
+      queryClient.invalidateQueries({ queryKey: ['fxRates'] })
+    }
+  })
+}
+
+/** Wie useResetSnapshots, aber nur für einen Bereich - der Snapshot-Verlauf bleibt dabei stehen. */
+export function useResetClass() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (cls: DisplayClass) => api.snapshots.resetClass(cls),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['snapshots'] })
       queryClient.invalidateQueries({ queryKey: ['historical'] })
@@ -116,7 +177,8 @@ export function useTransactions() {
 export function useImportCsv() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ broker, csvText }: { broker: BrokerFormat; csvText: string }) => api.transactions.importCsv(broker, csvText),
+    mutationFn: ({ broker, csvText }: { broker: BrokerFormat; csvText: string }) =>
+      api.transactions.importCsv(broker, csvText),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['positions'] })
       queryClient.invalidateQueries({ queryKey: ['transactions'] })

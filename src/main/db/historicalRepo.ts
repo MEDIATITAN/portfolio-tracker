@@ -12,7 +12,11 @@ export interface HistoricalFxPoint {
   rate: number
 }
 
-export function upsertHistoricalPrices(identifier: string, assetClass: AssetClass, points: HistoricalPricePoint[]): void {
+export function upsertHistoricalPrices(
+  identifier: string,
+  assetClass: AssetClass,
+  points: HistoricalPricePoint[]
+): void {
   const db = getDb()
   const stmt = db.prepare(
     `INSERT INTO historical_prices (identifier, asset_class, date, price, currency)
@@ -29,7 +33,11 @@ export function upsertHistoricalPrices(identifier: string, assetClass: AssetClas
   }
 }
 
-export function upsertHistoricalFxRates(base: string, quote: string, points: HistoricalFxPoint[]): void {
+export function upsertHistoricalFxRates(
+  base: string,
+  quote: string,
+  points: HistoricalFxPoint[]
+): void {
   const db = getDb()
   const stmt = db.prepare(
     `INSERT INTO historical_fx_rates (base, quote, date, rate)
@@ -44,6 +52,17 @@ export function upsertHistoricalFxRates(base: string, quote: string, points: His
     db.exec('ROLLBACK')
     throw err
   }
+}
+
+/**
+ * Löscht die gespeicherte Kursreihe eines Wertpapiers, damit sie neu geholt wird.
+ *
+ * Nötig, weil ensureHistoricalData vorhandene Reihen bewusst NICHT erneut abruft (sonst liefe
+ * bei jedem Start ein voller Verlaufsabruf über alle Positionen). Ohne vorheriges Löschen
+ * bliebe ein "Zurücksetzen" also wirkungslos.
+ */
+export function deleteHistoricalPrices(identifier: string): void {
+  getDb().prepare('DELETE FROM historical_prices WHERE identifier = ?').run(identifier)
 }
 
 /** Frühestes Datum, für das wir für diesen Identifier bereits historische Kurse haben (oder null, falls keine). */
@@ -62,11 +81,53 @@ export interface HistoricalPriceRow {
   currency: string
 }
 
+/** Jüngster gespeicherter Kurstag einer Reihe, oder null wenn es keinen gibt. */
+export function latestHistoricalDate(identifier: string): string | null {
+  const row = getDb()
+    .prepare('SELECT MAX(date) AS d FROM historical_prices WHERE identifier = ?')
+    .get(identifier) as unknown as { d: string | null } | undefined
+  return row?.d ?? null
+}
+
+/**
+ * Jüngster gespeicherter Kurs VOR einem Stichtag.
+ *
+ * Der Stichtag ist wichtig: bei jedem Kursabruf wird der Live-Kurs zusätzlich als heutiger Punkt
+ * in die Reihe geschrieben. Ein Vergleich mit dem jüngsten Kurs überhaupt verglich also den
+ * Live-Kurs mit sich selbst und konnte nie etwas auffälliges finden.
+ */
+export function latestPriceBefore(
+  identifier: string,
+  date: string
+): { date: string; price: number; currency: string } | null {
+  const row = getDb()
+    .prepare(
+      'SELECT date, price, currency FROM historical_prices WHERE identifier = ? AND date < ? ORDER BY date DESC LIMIT 1'
+    )
+    .get(identifier, date) as unknown as
+    { date: string; price: number; currency: string } | undefined
+  return row ?? null
+}
+
 export function listAllHistoricalPrices(): HistoricalPriceRow[] {
   const rows = getDb()
-    .prepare('SELECT identifier, asset_class, date, price, currency FROM historical_prices ORDER BY identifier, date')
-    .all() as unknown as { identifier: string; asset_class: AssetClass; date: string; price: number; currency: string }[]
-  return rows.map((r) => ({ identifier: r.identifier, assetClass: r.asset_class, date: r.date, price: r.price, currency: r.currency }))
+    .prepare(
+      'SELECT identifier, asset_class, date, price, currency FROM historical_prices ORDER BY identifier, date'
+    )
+    .all() as unknown as {
+    identifier: string
+    asset_class: AssetClass
+    date: string
+    price: number
+    currency: string
+  }[]
+  return rows.map((r) => ({
+    identifier: r.identifier,
+    assetClass: r.asset_class,
+    date: r.date,
+    price: r.price,
+    currency: r.currency
+  }))
 }
 
 export interface HistoricalFxRow {

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { AssetClass, SymbolSearchResult } from '@shared/types'
+import type { SymbolSearchResult } from '@shared/types'
+import type { DisplayClass } from '@shared/displayClass'
 import { useSearchQuotes, useSymbolSearch } from '../../lib/queries'
 import { formatMoney } from '../../lib/format'
 import { inputClass } from './formStyles'
 
 interface SymbolSearchInputProps {
-  assetClass: AssetClass
+  kind: DisplayClass
   value: string
   onChangeText: (text: string) => void
   onSelect: (result: SymbolSearchResult) => void
@@ -13,7 +14,7 @@ interface SymbolSearchInputProps {
 }
 
 export function SymbolSearchInput({
-  assetClass,
+  kind,
   value,
   onChangeText,
   onSelect,
@@ -27,12 +28,15 @@ export function SymbolSearchInput({
     return () => clearTimeout(timer)
   }, [value])
 
-  const { data: results, isFetching } = useSymbolSearch(assetClass, debouncedQuery)
+  const { data: results, isFetching } = useSymbolSearch(kind, debouncedQuery)
   const showDropdown = focused && debouncedQuery.trim().length >= 2 && (results?.length ?? 0) > 0
 
   // Kurse werden erst nach den Treffern geladen - die Liste erscheint dadurch sofort, die Kurse
   // erscheinen kurz darauf. Nur abfragen, solange die Liste offen ist.
-  const { data: quotes } = useSearchQuotes(assetClass, showDropdown ? (results ?? []).map((r) => r.identifier) : [])
+  const { data: quotes } = useSearchQuotes(
+    kind,
+    showDropdown ? (results ?? []).map((r) => r.identifier) : []
+  )
   const quoteFor = (identifier: string): { price: number; currency: string } | undefined =>
     quotes?.find((q) => q.identifier === identifier)
 
@@ -47,7 +51,9 @@ export function SymbolSearchInput({
         placeholder={placeholder}
         autoComplete="off"
       />
-      {isFetching && <span className="absolute top-2 right-2 text-xs text-slate-400 dark:text-slate-500">…</span>}
+      {isFetching && (
+        <span className="absolute top-2 right-2 text-xs text-slate-400 dark:text-slate-500">…</span>
+      )}
       {showDropdown && (
         <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded border border-slate-200 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800">
           {results!.map((r) => {
@@ -66,7 +72,9 @@ export function SymbolSearchInput({
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate font-medium text-slate-900 dark:text-slate-100">
                       {r.symbol}{' '}
-                      <span className="font-normal text-slate-500 dark:text-slate-400">– {r.name}</span>
+                      <span className="font-normal text-slate-500 dark:text-slate-400">
+                        – {r.name}
+                      </span>
                     </span>
                     {(r.exchange || r.sector) && (
                       <span className="truncate text-xs text-slate-400 dark:text-slate-500">

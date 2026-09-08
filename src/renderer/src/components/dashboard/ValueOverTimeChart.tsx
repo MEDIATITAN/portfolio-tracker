@@ -1,10 +1,9 @@
-import { useState } from 'react'
 import type { DisplayClass } from '@shared/displayClass'
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
   Label,
-  Line,
-  LineChart,
   ReferenceDot,
   ResponsiveContainer,
   Tooltip,
@@ -15,12 +14,22 @@ import type {
   FxRate,
   HistoricalFxEntry,
   HistoricalPriceEntry,
+  IntradayPriceEntry,
   Position,
   ValueSnapshot
 } from '@shared/types'
 import { formatEur, formatPercent } from '../../lib/format'
 import { useTheme } from '../../lib/ThemeContext'
 import { buildDailyHistoricalSeries } from '../../lib/historicalSeries'
+import { buildHourlySeries } from '../../lib/hourlySeries'
+import {
+  RANGE_LABELS,
+  RANGE_ORDER,
+  RANGE_SUBTITLES,
+  rangeBucketMs,
+  rangeStart,
+  type TimeRange
+} from '../../lib/timeRange'
 
 interface ValueOverTimeChartProps {
   snapshots: ValueSnapshot[]
@@ -28,6 +37,8 @@ interface ValueOverTimeChartProps {
   fxRates: FxRate[]
   historicalPrices: HistoricalPriceEntry[]
   historicalFxRates: HistoricalFxEntry[]
+  /** Stundenkurse der letzten Tage - tragen die Zeiträume "1 Tag" und "1 Woche". */
+  intradayPrices: IntradayPriceEntry[]
   /** Wenn gesetzt: nur den Wertverlauf dieser Anlageklasse zeigen, statt des Gesamtvermögens. */
   assetClassFilter?: DisplayClass | 'ALL'
   /** Ob es aktuell überhaupt Positionen in der gefilterten Anlageklasse gibt. */
@@ -41,9 +52,11 @@ interface ValueOverTimeChartProps {
   onAddPosition: () => void
   expanded?: boolean
   onToggleExpand?: () => void
+  /** Gewählter Zeitraum. Von außen gesteuert, damit die Gewinner/Verlierer-Liste daneben
+   *  denselben Zeitraum auswertet wie das Diagramm. */
+  range: TimeRange
+  onRangeChange: (range: TimeRange) => void
 }
-
-type TimeRange = '1D' | '1W' | '1M' | '6M' | 'YTD' | 'ALL'
 
 interface ChartPoint {
   timestamp: number
@@ -51,53 +64,15 @@ interface ChartPoint {
   realValue: number | null
 }
 
-const RANGE_LABELS: Record<TimeRange, string> = {
-  '1D': '1T',
-  '1W': '1W',
-  '1M': '1M',
-  '6M': '6M',
-  YTD: 'YTD',
-  ALL: 'Alle'
-}
-
-/** Beschriftung unter der Rendite-Prozentzahl, je gewähltem Zeitraum - statt eines generischen
- *  "im gewählten Zeitraum" für alle. */
-const RANGE_SUBTITLES: Record<TimeRange, string> = {
-  '1D': 'heute',
-  '1W': 'diese Woche',
-  '1M': 'diesen Monat',
-  '6M': 'letzte 6 Monate',
-  YTD: 'dieses Jahr',
-  ALL: 'seit Kauf'
-}
-
-const RANGE_ORDER: TimeRange[] = ['1D', '1W', '1M', '6M', 'YTD', 'ALL']
-const DAY_MS = 24 * 60 * 60 * 1000
-
-function rangeStart(range: TimeRange): number {
-  const now = Date.now()
-  switch (range) {
-    case '1D':
-      return now - 1 * DAY_MS
-    case '1W':
-      return now - 7 * DAY_MS
-    case '1M':
-      return now - 30 * DAY_MS
-    case '6M':
-      return now - 182 * DAY_MS
-    case 'YTD':
-      return new Date(new Date().getFullYear(), 0, 1).getTime()
-    case 'ALL':
-      return -Infinity
-  }
-}
-
 function formatAxisDate(iso: string, range: TimeRange): string {
   const date = new Date(iso)
-  if (range === '1D' || range === '1W') {
+  // Innerhalb eines Tages ist das Datum überall gleich - die Uhrzeit allein ist lesbarer.
+  if (range === '1D') {
+    return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+  }
+  if (range === '1W') {
     return date.toLocaleString('de-DE', {
-      day: '2-digit',
-      month: '2-digit',
+      weekday: 'short',
       hour: '2-digit',
       minute: '2-digit'
     })
@@ -124,6 +99,35 @@ function valueDomain([dataMin, dataMax]: readonly [number, number]): [number, nu
   return [Math.max(0, dataMin - pad), dataMax + pad]
 }
 
+/**
+ * Fasst die Punkte auf ein festes Raster zusammen und behält je Intervall den JÜNGSTEN Wert -
+ * der ist am nächsten an dem, was am Ende des Intervalls tatsächlich im Depot stand.
+ */
+function bucketByInterval(
+  points: { timestamp: number; value: number }[],
+  bucketMs: number
+): { timestamp: number; value: number }[] {
+  if (points.length === 0) return points
+  const byBucket = new Map<number, { timestamp: number; value: number }>()
+  // Die Punkte kommen chronologisch - ein späterer Eintrag überschreibt den früheren im
+  // selben Intervall.
+  for (const p of points) byBucket.set(Math.floor(p.timestamp / bucketMs), p)
+  return [...byBucket.values()]
+}
+
+/**
+ * Farbe der Kurve: grün bei Wertzuwachs im gewählten Zeitraum, rot bei Rückgang.
+ *
+ * Bewusst an DERSELBEN Prozentzahl ausgerichtet, die über dem Diagramm steht - eine grüne
+ * Kurve über einer roten Zahl wäre schlimmer als gar keine Färbung.
+ */
+function seriesColors(positive: boolean, isDark: boolean): { line: string; fill: string } {
+  if (positive) {
+    return { line: isDark ? '#34d399' : '#059669', fill: isDark ? '#34d399' : '#10b981' }
+  }
+  return { line: isDark ? '#f87171' : '#dc2626', fill: isDark ? '#f87171' : '#ef4444' }
+}
+
 function snapshotValue(snapshot: ValueSnapshot, assetClassFilter?: DisplayClass | 'ALL'): number {
   if (!assetClassFilter || assetClassFilter === 'ALL') return snapshot.totalValueEur
   return snapshot.items.find((i) => i.assetClass === assetClassFilter)?.valueEur ?? 0
@@ -135,20 +139,29 @@ export function ValueOverTimeChart({
   fxRates,
   historicalPrices,
   historicalFxRates,
+  intradayPrices,
   assetClassFilter,
   hasPositionsInClass,
   hasAnyPositions,
   gainLossPercent,
   onAddPosition,
   expanded = false,
-  onToggleExpand
+  onToggleExpand,
+  range,
+  onRangeChange
 }: ValueOverTimeChartProps): React.JSX.Element {
-  const [range, setRange] = useState<TimeRange>('ALL')
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const lineColor = isDark ? '#60a5fa' : '#2563eb'
 
   const cutoff = rangeStart(range)
+  // Bei kurzen Zeiträumen wird der Verlauf aus Stundenkursen nachgerechnet statt aus den
+  // Momentaufnahmen: die entstehen nur bei geöffneter App und hinterlassen sonst Lücken.
+  const useHourly = range === '1D' || range === '1W'
+  // Ende der Stundenreihe ist der jüngste vorhandene Datenpunkt, nicht die aktuelle Uhrzeit:
+  // die Ableitung soll allein von den übergebenen Daten abhängen und bei gleichen Daten
+  // dasselbe Ergebnis liefern.
+  const seriesEndMs =
+    snapshots.length > 0 ? new Date(snapshots[snapshots.length - 1].takenAt).getTime() : cutoff
 
   // Reihe VOR dem ersten echten Snapshot: primär aus echten historischen Kursen (Yahoo/
   // CoinGecko/Frankfurter), pro Tag/Position auf den Einstandspreis zurückfallend wo keine
@@ -171,10 +184,38 @@ export function ValueOverTimeChart({
   // wurde dadurch immer derselbe (erste) Punkt der Gruppe angezeigt, obwohl die Linie zwischen
   // echten, unterschiedlichen Werten verläuft. Mit einer numerischen Achse ist jeder Zeitstempel
   // eindeutig positioniert.
-  const realPoints = filtered.map((s) => ({
+  const hourlyPoints = useHourly
+    ? buildHourlySeries(
+        positions,
+        intradayPrices,
+        historicalPrices,
+        historicalFxRates,
+        fxRates,
+        cutoff,
+        seriesEndMs
+      )
+    : []
+
+  const snapshotPoints = filtered.map((s) => ({
     timestamp: new Date(s.takenAt).getTime(),
     value: snapshotValue(s, assetClassFilter)
   }))
+
+  // Den letzten Punkt liefert weiterhin die jüngste Momentaufnahme: sie enthält den echten,
+  // eben abgerufenen Depotwert - die Stundenreihe endet auf der letzten vollen Stunde.
+  const newestSnapshot = snapshotPoints[snapshotPoints.length - 1] ?? null
+  const hourlyWithLatest =
+    newestSnapshot &&
+    newestSnapshot.timestamp > (hourlyPoints[hourlyPoints.length - 1]?.timestamp ?? 0)
+      ? [...hourlyPoints, newestSnapshot]
+      : hourlyPoints
+  // Auch die Stundenreihe wird gerastert: bei "1 Woche" sind 168 Stundenpunkte zu dicht, dort
+  // sind 12-Stunden-Schritte gewollt. Bei "1 Tag" ist das Raster genau eine Stunde und ändert
+  // an der Reihe nichts.
+  const realPoints = bucketByInterval(
+    useHourly && hourlyPoints.length > 0 ? hourlyWithLatest : snapshotPoints,
+    rangeBucketMs(range)
+  )
 
   // Zwei getrennte Datenreihen (gestrichelt/durchgezogen) statt einer: der erste echte Punkt
   // bekommt bewusst BEIDE Werte, damit sich gestrichelte und durchgezogene Linie optisch berühren.
@@ -235,11 +276,24 @@ export function ValueOverTimeChart({
   const useCostBasisReturn = latestPurchaseMs !== null && cutoff <= latestPurchaseMs
   const displayPercent = useCostBasisReturn ? gainLossPercent : rangeChangePercent
   const rangeChangeLabel = RANGE_SUBTITLES[range]
+  // Ohne Prozentzahl (zu wenig Daten) bleibt es bei Grün - eine rote Kurve würde einen
+  // Verlust behaupten, den niemand gemessen hat.
+  const colors = seriesColors((displayPercent ?? 0) >= 0, isDark)
+  const lineColor = colors.line
+  // Eigene Verlaufs-Kennung je Anlageklasse: zwei Diagramme auf einer Seite dürfen sich nicht
+  // denselben SVG-Verlauf teilen, sonst gewinnt der zuletzt gerenderte für beide.
+  const gradientId = `valueArea-${assetClassFilter ?? 'ALL'}`
+  // Die Stützstellen sichtbar machen, solange es wenige sind: bei "1 Tag" und "1 Woche" ist
+  // genau das der Punkt der Rasterung - man soll sehen, WANN gemessen wurde. Bei Hunderten
+  // Punkten verschmelzen die Markierungen zu einem Band und machen die Kurve unleserlich.
+  const showDots = data.length <= 40
 
   return (
+    // h-full: nebeneinanderstehende Karten sollen gleich hoch abschließen, auch wenn ihre
+    // Überschriften unterschiedlich viele Zeilen brauchen.
     <div
       onClick={onToggleExpand}
-      className={`rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-all duration-300 dark:border-slate-700 dark:bg-slate-900 ${
+      className={`h-full rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-all duration-300 dark:border-slate-700 dark:bg-slate-900 ${
         onToggleExpand ? 'cursor-pointer' : ''
       }`}
     >
@@ -265,7 +319,7 @@ export function ValueOverTimeChart({
               <button
                 key={r}
                 type="button"
-                onClick={() => setRange(r)}
+                onClick={() => onRangeChange(r)}
                 className={`rounded px-2 py-0.5 text-xs ${
                   range === r
                     ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
@@ -311,7 +365,13 @@ export function ValueOverTimeChart({
             height={expanded ? 400 : 240}
             className="transition-all duration-300"
           >
-            <LineChart data={data} margin={{ top: 24, right: 70, left: 0, bottom: 0 }}>
+            <AreaChart data={data} margin={{ top: 24, right: 70, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={colors.fill} stopOpacity={isDark ? 0.35 : 0.28} />
+                  <stop offset="100%" stopColor={colors.fill} stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid
                 vertical={false}
                 strokeDasharray="3 3"
@@ -351,23 +411,36 @@ export function ValueOverTimeChart({
                 }}
                 labelStyle={{ color: isDark ? '#f1f5f9' : '#0f172a' }}
               />
-              <Line
+              {/* Der geschätzte Teil bleibt ohne Füllung: eine durchgehend gefüllte Fläche
+                  würde ihn wie gemessene Daten aussehen lassen. */}
+              <Area
                 type="monotone"
                 dataKey="syntheticValue"
                 stroke={lineColor}
                 strokeWidth={2}
                 strokeDasharray="5 4"
+                fill="none"
                 dot={false}
                 activeDot={{ r: 4 }}
                 connectNulls
               />
-              <Line
+              <Area
                 type="monotone"
                 dataKey="realValue"
                 stroke={lineColor}
-                strokeWidth={3}
-                dot={false}
-                activeDot={{ r: 5 }}
+                strokeWidth={2.5}
+                fill={`url(#${gradientId})`}
+                dot={
+                  showDots
+                    ? {
+                        r: 3,
+                        fill: lineColor,
+                        stroke: isDark ? '#0f172a' : '#ffffff',
+                        strokeWidth: 1.5
+                      }
+                    : false
+                }
+                activeDot={{ r: 5, strokeWidth: 2, stroke: isDark ? '#0f172a' : '#ffffff' }}
                 connectNulls
               />
               {last && lastValue !== null && (
@@ -390,7 +463,7 @@ export function ValueOverTimeChart({
                   />
                 </ReferenceDot>
               )}
-            </LineChart>
+            </AreaChart>
           </ResponsiveContainer>
           {hasEstimatedPortion && (
             <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">

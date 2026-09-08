@@ -2,6 +2,7 @@ import { getDb } from './index'
 import type {
   AssetClass,
   CashSubType,
+  CashType,
   NewPosition,
   Position,
   PositionUpdate,
@@ -25,6 +26,7 @@ interface PositionRow {
   sector: string | null
   region: string | null
   sub_type: CashSubType | null
+  cash_type: CashType | null
   purchase_date: string | null
   notes: string | null
   created_at: string
@@ -51,6 +53,7 @@ function rowToPosition(row: PositionRow): Position {
     sector: row.sector,
     region: row.region,
     subType: row.sub_type,
+    cashType: row.cash_type,
     purchaseDate: row.purchase_date,
     notes: row.notes,
     createdAt: row.created_at,
@@ -89,8 +92,8 @@ export function createPosition(input: NewPosition): Position {
   const result = getDb()
     .prepare(
       `INSERT INTO positions
-        (asset_class, security_type, name, symbol, identifier, isin, quantity, quantity_unit, currency, avg_cost_basis, manual_value, sector, region, sub_type, purchase_date, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (asset_class, security_type, name, symbol, identifier, isin, quantity, quantity_unit, currency, avg_cost_basis, manual_value, sector, region, sub_type, cash_type, purchase_date, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.assetClass,
@@ -107,6 +110,7 @@ export function createPosition(input: NewPosition): Position {
       input.sector,
       input.region,
       input.subType,
+      input.cashType,
       input.purchaseDate,
       input.notes
     )
@@ -130,6 +134,7 @@ export function updatePosition(input: PositionUpdate): Position {
     sector: pick(input, existing, 'sector'),
     region: pick(input, existing, 'region'),
     subType: pick(input, existing, 'subType'),
+    cashType: pick(input, existing, 'cashType'),
     purchaseDate: pick(input, existing, 'purchaseDate'),
     notes: pick(input, existing, 'notes')
   }
@@ -138,7 +143,7 @@ export function updatePosition(input: PositionUpdate): Position {
       `UPDATE positions SET
         asset_class = ?, security_type = ?, name = ?, symbol = ?, identifier = ?, isin = ?,
         quantity = ?, quantity_unit = ?, currency = ?, avg_cost_basis = ?, manual_value = ?,
-        sector = ?, region = ?, sub_type = ?, purchase_date = ?, notes = ?,
+        sector = ?, region = ?, sub_type = ?, cash_type = ?, purchase_date = ?, notes = ?,
         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
        WHERE id = ?`
     )
@@ -157,6 +162,7 @@ export function updatePosition(input: PositionUpdate): Position {
       merged.sector,
       merged.region,
       merged.subType,
+      merged.cashType,
       merged.purchaseDate,
       merged.notes,
       input.id

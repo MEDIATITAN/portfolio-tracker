@@ -1,8 +1,10 @@
+import type { DisplayClass } from '../shared/displayClass'
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
-  AssetClass,
   BrokerFormat,
+  BudgetItemUpdate,
   CsvImportProgressEvent,
+  NewBudgetItem,
   NewPosition,
   PortfolioApi,
   PositionUpdate,
@@ -17,15 +19,16 @@ const api: PortfolioApi = {
     update: (input: PositionUpdate) => ipcRenderer.invoke('positions:update', input),
     delete: (id: number) => ipcRenderer.invoke('positions:delete', id),
     deleteAll: () => ipcRenderer.invoke('positions:deleteAll'),
-    lookupSymbol: (assetClass: AssetClass, query: string) =>
-      ipcRenderer.invoke('positions:lookupSymbol', assetClass, query),
-    getAssetProfile: (identifier: string) => ipcRenderer.invoke('positions:getAssetProfile', identifier)
+    lookupSymbol: (kind: DisplayClass, query: string) =>
+      ipcRenderer.invoke('positions:lookupSymbol', kind, query),
+    getAssetProfile: (identifier: string) =>
+      ipcRenderer.invoke('positions:getAssetProfile', identifier)
   },
   prices: {
     refreshAll: () => ipcRenderer.invoke('prices:refreshAll'),
     getAll: () => ipcRenderer.invoke('prices:getAll'),
-    getQuotes: (assetClass: AssetClass, identifiers: string[]) =>
-      ipcRenderer.invoke('prices:getQuotes', assetClass, identifiers)
+    getQuotes: (kind: DisplayClass, identifiers: string[]) =>
+      ipcRenderer.invoke('prices:getQuotes', kind, identifiers)
   },
   fx: {
     getAll: () => ipcRenderer.invoke('fx:getAll')
@@ -33,6 +36,7 @@ const api: PortfolioApi = {
   snapshots: {
     list: () => ipcRenderer.invoke('snapshots:list'),
     reset: () => ipcRenderer.invoke('snapshots:reset'),
+    resetClass: (cls: DisplayClass) => ipcRenderer.invoke('snapshots:resetClass', cls),
     onResetProgress: (callback: (event: ResetProgressEvent) => void) => {
       const listener = (_: unknown, payload: ResetProgressEvent) => callback(payload)
       ipcRenderer.on('snapshots:reset-progress', listener)
@@ -49,9 +53,17 @@ const api: PortfolioApi = {
   etfComposition: {
     list: () => ipcRenderer.invoke('etfComposition:list')
   },
+  budget: {
+    list: () => ipcRenderer.invoke('budget:list'),
+    create: (input: NewBudgetItem) => ipcRenderer.invoke('budget:create', input),
+    update: (input: BudgetItemUpdate) => ipcRenderer.invoke('budget:update', input),
+    delete: (id: number) => ipcRenderer.invoke('budget:delete', id)
+  },
   transactions: {
     list: () => ipcRenderer.invoke('transactions:list'),
-    importCsv: (broker: BrokerFormat, csvText: string) => ipcRenderer.invoke('transactions:importCsv', broker, csvText),
+    delete: (id: number) => ipcRenderer.invoke('transactions:delete', id),
+    importCsv: (broker: BrokerFormat, csvText: string) =>
+      ipcRenderer.invoke('transactions:importCsv', broker, csvText),
     onImportProgress: (callback: (event: CsvImportProgressEvent) => void) => {
       const listener = (_: unknown, payload: CsvImportProgressEvent) => callback(payload)
       ipcRenderer.on('transactions:import-progress', listener)

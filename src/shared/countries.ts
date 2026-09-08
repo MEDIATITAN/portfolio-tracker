@@ -70,6 +70,38 @@ export function isCashLabel(label: string): boolean {
 }
 
 /** Unbekannte Bezeichnungen bleiben unverändert - lieber ein deutscher Ländername als gar keiner. */
+/**
+ * Wenige Länder, bei denen Intl.DisplayNames anders schreibt als die restliche Anwendung.
+ * Nachgemessen gegen regionMap.ts - ohne diese Angleichung fiele das Land bei der Zuordnung
+ * zum Kontinent durchs Raster und stünde als eigene Scheibe da.
+ */
+const ISO_NAME_OVERRIDES: Record<string, string> = {
+  HK: 'Hong Kong',
+  TR: 'Turkey',
+  CZ: 'Czech Republic'
+}
+
+/**
+ * Ländername aus dem ISO-3166-Code, wie ihn onvista zum Emittenten einer Anleihe mitliefert.
+ *
+ * Der Code ist die verlässlichere Angabe als der Name: die Übersetzungstabelle oben deckt die
+ * Länder ab, die in Fondsaufteilungen vorkommen - ein Anleihen-Emittent kann aus einem beliebigen
+ * anderen Land stammen. Intl.DisplayNames gehört zur Laufzeit und kennt alle.
+ */
+export function countryFromIsoCode(isoCountry: string): string | null {
+  const code = isoCountry.trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) return null
+  if (ISO_NAME_OVERRIDES[code]) return ISO_NAME_OVERRIDES[code]
+  try {
+    const name = new Intl.DisplayNames(['en'], { type: 'region' }).of(code)
+    // Unbekannte Codes gibt Intl unverändert zurück ("XS" für internationale Emissionen) -
+    // das ist kein Land und taugt nicht als Beschriftung.
+    return name && name !== code ? name : null
+  } catch {
+    return null
+  }
+}
+
 export function canonicalCountry(onvistaLabel: string): string {
   return ONVISTA_TO_YAHOO[onvistaLabel.trim()] ?? onvistaLabel.trim()
 }

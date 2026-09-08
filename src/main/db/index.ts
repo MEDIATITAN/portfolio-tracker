@@ -30,6 +30,9 @@ export function getDb(): DatabaseSync {
     ensureColumn(database, 'positions', 'quantity_unit', 'TEXT')
     ensureColumn(database, 'positions', 'purchase_date', 'TEXT')
     ensureColumn(database, 'positions', 'isin', 'TEXT')
+    // Ohne CHECK: SQLite erlaubt bei ADD COLUMN keine nachträgliche Beschränkung. Die
+    // zulässigen Werte gibt der Typ CashType vor, geschrieben wird nur über das Formular.
+    ensureColumn(database, 'positions', 'cash_type', 'TEXT')
 
     const seedStmt = database.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
     for (const [key, value] of Object.entries(SEED_SETTINGS)) {

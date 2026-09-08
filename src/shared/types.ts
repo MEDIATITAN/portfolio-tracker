@@ -1,6 +1,13 @@
+import type { DisplayClass } from './displayClass'
 export type AssetClass = 'STOCK_ETF' | 'CRYPTO' | 'COMMODITY' | 'CASH_OTHER'
 export type SecurityType = 'STOCK' | 'ETF'
 export type CashSubType = 'CASH' | 'BOND' | 'REAL_ESTATE' | 'OTHER'
+/**
+ * Feinere Unterteilung eines Guthabens. Bewusst eine eigene Spalte statt zusätzlicher Werte in
+ * sub_type: dessen CHECK-Beschränkung ließe sich nur durch einen Neuaufbau der Positionstabelle
+ * erweitern, an der die Transaktionen per Fremdschlüssel mit Löschweitergabe hängen.
+ */
+export type CashType = 'CHECKING' | 'SAVINGS' | 'PHYSICAL' | 'FOREIGN' | 'WORK'
 /** Nur für gewichtsbasierte COMMODITY-Positionen: in welcher Einheit `quantity` eingegeben wurde.
  *  Gold/Silber notieren in Feinunze, Kupfer in Pfund - siehe shared/commodities.ts. */
 export type QuantityUnit = 'GRAM' | 'KG' | 'TROY_OUNCE' | 'POUND'
@@ -23,6 +30,8 @@ export interface Position {
   sector: string | null
   region: string | null
   subType: CashSubType | null
+  /** Nur bei Guthaben gesetzt: Girokonto, Tagesgeld oder Bargeld. */
+  cashType: CashType | null
   /** Kaufdatum, optional, als 'YYYY-MM-DD'. */
   purchaseDate: string | null
   notes: string | null
@@ -114,9 +123,20 @@ export interface HistoricalFxEntry {
   rate: number
 }
 
+/** Ein Stundenkurs. `ts` ist ein voller ISO-Zeitstempel, anders als beim Tagesverlauf. */
+export interface IntradayPriceEntry {
+  identifier: string
+  assetClass: AssetClass
+  ts: string
+  price: number
+  currency: string
+}
+
 export interface HistoricalData {
   prices: HistoricalPriceEntry[]
   fxRates: HistoricalFxEntry[]
+  /** Stundenkurse der letzten Tage - trägt die kurzen Zeiträume (1 Tag, 1 Woche). */
+  intraday: IntradayPriceEntry[]
 }
 
 /** Fortschrittsmeldung während `snapshots:reset` - eine pro Position, zweimal (processing, dann done). */
@@ -173,8 +193,34 @@ export interface CsvImportProgressEvent {
 export interface CsvImportResult {
   transactionsImported: number
   positionsAffected: number
+  /** Buchungen, die schon genauso in der Datenbank standen und deshalb nicht erneut
+   *  angelegt wurden - typisch beim zweiten Einlesen derselben Datei. */
+  duplicatesSkipped: number
   unresolved: { name: string; isin: string }[]
 }
+
+export type BudgetItemType = 'INCOME' | 'EXPENSE'
+export type BudgetPeriod = 'MONTHLY' | 'QUARTERLY' | 'YEARLY'
+
+/** Ein wiederkehrender Posten im Geldfluss: Gehalt, Miete, Versicherung. */
+export interface BudgetItem {
+  id: number
+  type: BudgetItemType
+  name: string
+  /** Betrag je Periode, so wie er tatsächlich abgebucht wird - nicht auf den Monat gerechnet. */
+  amount: number
+  currency: string
+  period: BudgetPeriod
+  category: string | null
+  /** Ausgeschaltete Posten bleiben stehen, zählen aber nicht mit - z.B. ein pausiertes Abo. */
+  active: boolean
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type NewBudgetItem = Omit<BudgetItem, 'id' | 'createdAt' | 'updatedAt'>
+export type BudgetItemUpdate = Partial<NewBudgetItem> & { id: number }
 
 export interface PortfolioApi {
   positions: {
@@ -183,14 +229,15 @@ export interface PortfolioApi {
     update(input: PositionUpdate): Promise<Position>
     delete(id: number): Promise<void>
     deleteAll(): Promise<void>
-    lookupSymbol(assetClass: AssetClass, query: string): Promise<SymbolSearchResult[]>
+    /** 'BOND' sucht einzelne Anleihen bei onvista (WKN, ISIN oder Name) - siehe shared/bonds.ts. */
+    lookupSymbol(kind: DisplayClass, query: string): Promise<SymbolSearchResult[]>
     getAssetProfile(identifier: string): Promise<AssetProfile>
   }
   prices: {
     refreshAll(): Promise<RefreshResult>
     getAll(): Promise<PriceCacheEntry[]>
     /** Live-Kurse für beliebige Identifier - für die Kursanzeige in den Suchvorschlägen. */
-    getQuotes(assetClass: AssetClass, identifiers: string[]): Promise<SymbolQuote[]>
+    getQuotes(kind: DisplayClass, identifiers: string[]): Promise<SymbolQuote[]>
   }
   fx: {
     getAll(): Promise<FxRate[]>
@@ -198,6 +245,8 @@ export interface PortfolioApi {
   snapshots: {
     list(): Promise<ValueSnapshot[]>
     reset(): Promise<RefreshResult>
+    /** Setzt nur die Kursreihen eines Bereichs zurück; der Snapshot-Verlauf bleibt unberührt. */
+    resetClass(cls: DisplayClass): Promise<RefreshResult>
     onResetProgress(callback: (event: ResetProgressEvent) => void): () => void
   }
   settings: {
@@ -210,8 +259,17 @@ export interface PortfolioApi {
   etfComposition: {
     list(): Promise<EtfCompositionEntry[]>
   }
+  budget: {
+    list(): Promise<BudgetItem[]>
+    create(input: NewBudgetItem): Promise<BudgetItem>
+    update(input: BudgetItemUpdate): Promise<BudgetItem>
+    delete(id: number): Promise<void>
+  }
   transactions: {
     list(): Promise<TransactionWithPosition[]>
+    /** Löscht eine einzelne Buchung; Bestand und Einstandspreis der Position werden danach
+     *  neu nach FIFO gerechnet. */
+    delete(id: number): Promise<void>
     importCsv(broker: BrokerFormat, csvText: string): Promise<CsvImportResult>
     onImportProgress(callback: (event: CsvImportProgressEvent) => void): () => void
   }

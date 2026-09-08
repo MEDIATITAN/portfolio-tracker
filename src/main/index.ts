@@ -6,7 +6,7 @@ import icon from '../../resources/icon.png?asset'
 import { getDb } from './db'
 import { registerIpcHandlers } from './ipc'
 import {
-  mergeDuplicatesByIsin,
+  mergeDuplicatePositions,
   migrateExistingPositionsToTransactions
 } from './services/ledgerService'
 
@@ -61,11 +61,12 @@ app.whenReady().then(() => {
   // DB-Schema initialisieren, bevor IPC-Handler registriert werden, die darauf zugreifen.
   getDb()
   migrateExistingPositionsToTransactions()
-  // Dasselbe Wertpapier kann aus zwei Broker-Importen unter verschiedenen Börsenplätzen liegen
-  // ('IWDA.L' gegen 'IWDA.AS'). Beim Start einmal über die ISIN zusammenführen - idempotent,
-  // ohne Doppelungen ein no-op.
+  // Derselbe Vermögenswert kann doppelt liegen: ein Wertpapier aus zwei Broker-Importen unter
+  // verschiedenen Börsenplätzen ('IWDA.L' gegen 'IWDA.AS'), oder ein Rohstoff, der zweimal von Hand
+  // angelegt wurde. Beim Start einmal zusammenführen - idempotent, ohne Doppelungen ein no-op.
+  // Läuft NACH der Ledger-Migration, damit auch frisch erzeugte Eröffnungsbuchungen erfasst sind.
   {
-    const dedupe = mergeDuplicatesByIsin()
+    const dedupe = mergeDuplicatePositions()
     if (dedupe.merged > 0)
       console.log(
         `${dedupe.merged} doppelte Position(en) zusammengeführt:`,

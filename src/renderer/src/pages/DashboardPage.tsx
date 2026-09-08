@@ -4,11 +4,14 @@ import { displayClass } from '@shared/displayClass'
 import { NetWorthCard } from '../components/dashboard/NetWorthCard'
 import { BreakdownDonut } from '../components/dashboard/BreakdownDonut'
 import { ValueOverTimeChart } from '../components/dashboard/ValueOverTimeChart'
+import { TopMovers } from '../components/dashboard/TopMovers'
 import { HoldingsList } from '../components/dashboard/HoldingsList'
 import { RefreshButton } from '../components/common/RefreshButton'
+import { ResetProgressPanel } from '../components/positions/ResetProgressPanel'
 import { LastUpdatedBadge } from '../components/common/LastUpdatedBadge'
 import {
   assetClassBreakdown,
+  cashTypeBreakdown,
   positionBreakdown,
   regionBreakdown,
   sectorBreakdown,
@@ -16,6 +19,8 @@ import {
 } from '../lib/selectors'
 import { ASSET_CLASS_LABELS, formatEur } from '../lib/format'
 import { shouldAutoRefresh } from '../lib/autoRefresh'
+import type { TimeRange } from '../lib/timeRange'
+import { useResetRun } from '../lib/useResetRun'
 import type { ClassFilter } from '../lib/navigation'
 import {
   useEtfComposition,
@@ -24,10 +29,11 @@ import {
   usePositions,
   usePriceCache,
   useRefreshPrices,
+  useResetClass,
   useSnapshots
 } from '../lib/queries'
 
-type ChartKey = 'assetClass' | 'sector' | 'region'
+type ChartKey = 'assetClass' | 'sector' | 'region' | 'cashType'
 type HeroKey = 'positions' | 'time'
 /** Alle Diagramme, die sich aufschlüsseln lassen. */
 type DonutKey = ChartKey | 'positions'
@@ -53,6 +59,10 @@ export function DashboardPage({
   const { data: historicalData } = useHistoricalData()
   const { data: etfComposition } = useEtfComposition()
   const refreshPrices = useRefreshPrices()
+  const resetClass = useResetClass()
+  const resetRun = useResetRun()
+  // Der Zeitraum des Wertverlaufs steuert auch die Gewinner/Verlierer-Liste darunter.
+  const [range, setRange] = useState<TimeRange>('ALL')
   const [regionGrouping, setRegionGrouping] = useState<RegionGrouping>('country')
   const [expandedChart, setExpandedChart] = useState<ChartKey | null>(null)
   const [expandedHero, setExpandedHero] = useState<HeroKey | null>(null)
@@ -75,6 +85,18 @@ export function DashboardPage({
   const hasPositionsInClass =
     classFilter === 'ALL' || (positions ?? []).some((p) => displayClass(p) === classFilter)
   const hasAnyPositions = (positions ?? []).length > 0
+  // Sektoren und Regionen gibt es nur dort, wo sie eine Bedeutung haben: Krypto, Rohstoffe und
+  // Cash/Sonstiges haben weder Branchen noch Sitzländer. Anleihen behalten die Regionen (die
+  // Länder der Emittenten), aber keine Sektoren - eine Staatsanleihe gehört in keine Branche.
+  const showSector = classFilter === 'ALL' || classFilter === 'STOCK_ETF'
+  const showRegion = showSector || classFilter === 'BOND'
+  const showChartRow = classFilter === 'ALL' || showRegion
+  // Gewinner/Verlierer nur dort, wo es genug kursbewegte Positionen für eine Rangliste gibt.
+  // Cash hat keine Kurse; Anleihen und Rohstoffe sind je eine Handvoll Positionen, bei denen
+  // eine "Top 3" praktisch die ganze Liste wäre.
+  const showTopMovers =
+    classFilter === 'ALL' || classFilter === 'STOCK_ETF' || classFilter === 'CRYPTO'
+  const showCashTypes = classFilter === 'CASH_OTHER'
 
   function toggle(key: ChartKey): () => void {
     return () => {
@@ -101,6 +123,15 @@ export function DashboardPage({
     }
   }
 
+  /**
+   * Setzt nur die Kursreihen dieses Bereichs zurück. Der Verlauf des Gesamtvermögens bleibt
+   * stehen - er hält alle Bereiche gemeinsam fest, ihn hier zu löschen träfe auch die anderen.
+   */
+  function handleResetClass(): void {
+    if (classFilter === 'ALL' || resetClass.isPending) return
+    resetRun.start((callbacks) => resetClass.mutate(classFilter, callbacks))
+  }
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
       <header className="flex items-center justify-between">
@@ -111,16 +142,38 @@ export function DashboardPage({
           <p className="text-sm text-slate-500 dark:text-slate-400">Dein Vermögen im Überblick</p>
         </div>
         <div className="text-right">
-          <RefreshButton
-            onRefresh={() => refreshPrices.mutate()}
-            isRefreshing={refreshPrices.isPending}
-          />
+          <div className="flex items-center justify-end gap-2">
+            {classFilter !== 'ALL' && (
+              <button
+                type="button"
+                onClick={handleResetClass}
+                disabled={resetClass.isPending}
+                title={`Verwirft die gespeicherten Kursreihen im Bereich ${ASSET_CLASS_LABELS[classFilter]} und holt sie neu. Andere Bereiche und der Vermögensverlauf bleiben unberührt.`}
+                className="rounded border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Kurse zurücksetzen
+              </button>
+            )}
+            <RefreshButton
+              onRefresh={() => refreshPrices.mutate()}
+              isRefreshing={refreshPrices.isPending}
+            />
+          </div>
           <LastUpdatedBadge
             updatedCount={refreshPrices.data?.updatedCount ?? null}
-            failedCount={refreshPrices.data?.failedIdentifiers.length ?? 0}
+            failedIdentifiers={refreshPrices.data?.failedIdentifiers ?? []}
           />
         </div>
       </header>
+
+      {resetRun.visible && (
+        <ResetProgressPanel
+          entries={resetRun.entries}
+          allDone={resetRun.allDone}
+          error={resetRun.error}
+          fading={resetRun.fading}
+        />
+      )}
 
       <NetWorthCard
         title={classFilter === 'ALL' ? 'Gesamtvermögen' : ASSET_CLASS_LABELS[classFilter]}
@@ -161,6 +214,7 @@ export function DashboardPage({
             fxRates={fxRates ?? []}
             historicalPrices={historicalData?.prices ?? []}
             historicalFxRates={historicalData?.fxRates ?? []}
+            intradayPrices={historicalData?.intraday ?? []}
             assetClassFilter={classFilter}
             hasPositionsInClass={hasPositionsInClass}
             hasAnyPositions={hasAnyPositions}
@@ -168,61 +222,95 @@ export function DashboardPage({
             onAddPosition={onNavigateToPositions}
             expanded={expandedHero === 'time'}
             onToggleExpand={toggleHero('time')}
+            range={range}
+            onRangeChange={setRange}
           />
         </div>
       </div>
 
-      <div className="flex flex-col gap-4 md:flex-row">
-        {classFilter === 'ALL' && (
+      {showTopMovers && (
+        <TopMovers
+          values={filteredValues}
+          historicalPrices={historicalData?.prices ?? []}
+          historicalFxRates={historicalData?.fxRates ?? []}
+          range={range}
+        />
+      )}
+
+      {showChartRow && (
+        <div className="flex flex-col gap-4 md:flex-row">
+          {classFilter === 'ALL' && (
+            <div
+              style={flexStyle('assetClass', expandedChart)}
+              className="min-w-0 transition-all duration-300"
+            >
+              <BreakdownDonut
+                title="Anlageklassen"
+                data={assetClassBreakdown(values)}
+                expanded={expandedChart === 'assetClass'}
+                onToggleExpand={toggle('assetClass')}
+                {...drillProps('assetClass')}
+              />
+            </div>
+          )}
+          {showSector && (
+            <div
+              style={flexStyle('sector', expandedChart)}
+              className="min-w-0 transition-all duration-300"
+            >
+              <BreakdownDonut
+                title="Sektoren (inkl. ETF-Durchschau)"
+                data={sectorBreakdown(filteredValues, etfComposition ?? [])}
+                expanded={expandedChart === 'sector'}
+                onToggleExpand={toggle('sector')}
+                {...drillProps('sector')}
+              />
+            </div>
+          )}
+          {showRegion && (
+            <div
+              style={flexStyle('region', expandedChart)}
+              className="min-w-0 transition-all duration-300"
+            >
+              <BreakdownDonut
+                title="Regionen (inkl. ETF-Durchschau)"
+                data={regionBreakdown(filteredValues, etfComposition ?? [], regionGrouping)}
+                expanded={expandedChart === 'region'}
+                onToggleExpand={toggle('region')}
+                {...drillProps('region')}
+                headerExtra={
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRegionGrouping((g) => (g === 'country' ? 'continent' : 'country'))
+                    }
+                    className="shrink-0 rounded border border-slate-300 px-2 py-0.5 text-xs whitespace-nowrap text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    {regionGrouping === 'country' ? 'Nach Kontinent' : 'Nach Land'}
+                  </button>
+                }
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {showCashTypes && (
+        <div className="flex flex-col gap-4 md:flex-row">
           <div
-            style={flexStyle('assetClass', expandedChart)}
+            style={expandedChart === 'cashType' ? { flex: '1 1 0%' } : { flex: '0 0 33%' }}
             className="min-w-0 transition-all duration-300"
           >
             <BreakdownDonut
-              title="Anlageklassen"
-              data={assetClassBreakdown(values)}
-              expanded={expandedChart === 'assetClass'}
-              onToggleExpand={toggle('assetClass')}
-              {...drillProps('assetClass')}
+              title="Kontoarten"
+              data={cashTypeBreakdown(filteredValues)}
+              expanded={expandedChart === 'cashType'}
+              onToggleExpand={toggle('cashType')}
+              {...drillProps('cashType')}
             />
           </div>
-        )}
-        <div
-          style={flexStyle('sector', expandedChart)}
-          className="min-w-0 transition-all duration-300"
-        >
-          <BreakdownDonut
-            title="Sektoren (inkl. ETF-Durchschau)"
-            data={sectorBreakdown(filteredValues, etfComposition ?? [])}
-            expanded={expandedChart === 'sector'}
-            onToggleExpand={toggle('sector')}
-            {...drillProps('sector')}
-          />
         </div>
-        <div
-          style={flexStyle('region', expandedChart)}
-          className="min-w-0 transition-all duration-300"
-        >
-          <BreakdownDonut
-            title="Regionen (inkl. ETF-Durchschau)"
-            data={regionBreakdown(filteredValues, etfComposition ?? [], regionGrouping)}
-            expanded={expandedChart === 'region'}
-            onToggleExpand={toggle('region')}
-            {...drillProps('region')}
-            headerExtra={
-              <button
-                type="button"
-                onClick={() =>
-                  setRegionGrouping((g) => (g === 'country' ? 'continent' : 'country'))
-                }
-                className="shrink-0 rounded border border-slate-300 px-2 py-0.5 text-xs whitespace-nowrap text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
-              >
-                {regionGrouping === 'country' ? 'Nach Kontinent' : 'Nach Land'}
-              </button>
-            }
-          />
-        </div>
-      </div>
+      )}
 
       <HoldingsList values={filteredValues} />
     </div>

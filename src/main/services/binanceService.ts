@@ -29,9 +29,13 @@ export interface DailyPrice {
   price: number
 }
 
-async function fetchKlines(pair: string, startMs: number): Promise<number[][] | null> {
+async function fetchKlines(
+  pair: string,
+  startMs: number,
+  interval: string
+): Promise<number[][] | null> {
   try {
-    const url = `${BASE}/klines?symbol=${pair}&interval=1d&startTime=${startMs}&limit=${MAX_PER_REQUEST}`
+    const url = `${BASE}/klines?symbol=${pair}&interval=${interval}&startTime=${startMs}&limit=${MAX_PER_REQUEST}`
     const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })
     if (!res.ok) return null
     const data = await res.json()
@@ -45,6 +49,27 @@ async function fetchKlines(pair: string, startMs: number): Promise<number[][] | 
  * Tages-Schlusskurse in USDT ab fromDate. Blättert weiter, bis das heutige Datum erreicht ist -
  * eine Anfrage deckt knapp drei Jahre ab, mehrere Seiten sind also nur bei langer Historie nötig.
  */
+/**
+ * Stundenkurse in USDT ab `fromMs`. Anders als bei Aktien gibt es sie rund um die Uhr - Krypto
+ * wird auch nachts und am Wochenende gehandelt.
+ */
+export async function getHourlyPricesUsdt(
+  symbol: string,
+  fromMs: number
+): Promise<{ ts: string; price: number }[]> {
+  const upper = symbol.trim().toUpperCase()
+  if (!upper) return []
+  const klines = await fetchKlines(`${upper}USDT`, fromMs, '1h')
+  if (!klines) return []
+  const out: { ts: string; price: number }[] = []
+  for (const k of klines) {
+    const close = Number(k[4])
+    if (!Number.isFinite(close) || close <= 0) continue
+    out.push({ ts: new Date(k[0]).toISOString(), price: close })
+  }
+  return out
+}
+
 export async function getHistoricalPricesUsdt(
   symbol: string,
   fromDate: string
@@ -60,7 +85,7 @@ export async function getHistoricalPricesUsdt(
     let cursor = Date.parse(fromDate)
     if (Number.isNaN(cursor)) return []
     for (;;) {
-      const klines = await fetchKlines(`${sym}USDT`, cursor)
+      const klines = await fetchKlines(`${sym}USDT`, cursor, '1d')
       if (!klines || klines.length === 0) break
       for (const k of klines) {
         const date = new Date(k[0]).toISOString().slice(0, 10)

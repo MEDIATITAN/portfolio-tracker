@@ -1,5 +1,5 @@
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
-import { UNRESOLVED_ETF_LABEL, type Slice } from '../../lib/selectors'
+import { UNASSIGNED_CASH_LABEL, UNRESOLVED_ETF_LABEL, type Slice } from '../../lib/selectors'
 import { formatEur } from '../../lib/format'
 import { useTheme } from '../../lib/ThemeContext'
 
@@ -54,7 +54,7 @@ const DARK_COLORS = [
 
 const OTHERS_LABEL = 'Sonstige'
 /** Sammel-/Unbekannt-Scheiben bekommen bewusst ein neutrales Grau statt einer Signalfarbe. */
-const MUTED_LABELS = new Set<string>([OTHERS_LABEL, UNRESOLVED_ETF_LABEL])
+const MUTED_LABELS = new Set<string>([OTHERS_LABEL, UNRESOLVED_ETF_LABEL, UNASSIGNED_CASH_LABEL])
 const MUTED_COLOR_LIGHT = '#94a3b8'
 const MUTED_COLOR_DARK = '#64748b'
 
@@ -200,9 +200,12 @@ export function BreakdownDonut({
   const handleCardClick = drillSlice ? undefined : onToggleExpand
 
   return (
+    // h-full: Diagrammkarten, die nebeneinander stehen, sollen gleich hoch sein. Ohne das richtet
+    // sich jede Karte nach ihrem eigenen Inhalt, und schon eine zweizeilige Überschrift oder der
+    // Hinweis "zum Aufklappen klicken" macht eine Karte höher als ihre Nachbarn.
     <div
       onClick={handleCardClick}
-      className={`min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-all duration-300 dark:border-slate-700 dark:bg-slate-900 ${
+      className={`h-full min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-all duration-300 dark:border-slate-700 dark:bg-slate-900 ${
         handleCardClick ? 'cursor-pointer' : ''
       }`}
     >

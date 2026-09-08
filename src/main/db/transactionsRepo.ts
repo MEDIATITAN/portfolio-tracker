@@ -75,6 +75,16 @@ export function moveTransactions(fromPositionId: number, toPositionId: number): 
   return Number(result.changes)
 }
 
+/** Löscht eine einzelne Buchung. Gibt die Position zurück, zu der sie gehörte, oder null. */
+export function deleteTransaction(id: number): number | null {
+  const row = getDb()
+    .prepare('SELECT position_id FROM transactions WHERE id = ?')
+    .get(id) as unknown as { position_id: number } | undefined
+  if (!row) return null
+  getDb().prepare('DELETE FROM transactions WHERE id = ?').run(id)
+  return row.position_id
+}
+
 export function listTransactionsByPosition(positionId: number): Transaction[] {
   const rows = getDb()
     .prepare('SELECT * FROM transactions WHERE position_id = ? ORDER BY date ASC, id ASC')

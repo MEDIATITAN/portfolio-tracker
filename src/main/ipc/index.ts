@@ -3,6 +3,7 @@ import { registerPricesHandlers } from './pricesHandlers'
 import { registerSnapshotsHandlers } from './snapshotsHandlers'
 import { registerSettingsHandlers } from './settingsHandlers'
 import { registerHistoricalHandlers } from './historicalHandlers'
+import { registerBudgetHandlers } from './budgetHandlers'
 import { registerTransactionsHandlers } from './transactionsHandlers'
 
 export function registerIpcHandlers(): void {
@@ -11,5 +12,6 @@ export function registerIpcHandlers(): void {
   registerSnapshotsHandlers()
   registerSettingsHandlers()
   registerHistoricalHandlers()
+  registerBudgetHandlers()
   registerTransactionsHandlers()
 }

@@ -1,4 +1,4 @@
-import { canonicalCountry, isCashLabel } from '../../shared/countries'
+import { canonicalCountry, countryFromIsoCode, isCashLabel } from '../../shared/countries'
 
 /**
  * Länderaufteilung von ETFs über onvista.
@@ -184,4 +184,224 @@ export async function findIsinByName(name: string): Promise<{ isin: string; name
   }
   if (!best || best.score < 0.5) return null
   return { isin: best.isin, name: best.name }
+}
+
+/**
+ * Anleihen bei onvista.
+ *
+ * Warum hier und nicht bei Yahoo: Yahoo führt einzelne Anleihen überhaupt nicht - weder über ISIN
+ * noch über WKN noch über die Börsenkürzel der deutschen Plätze kommt eine Notierung zurück
+ * (nachgemessen an einer Bundesanleihe). onvista listet sie dagegen inklusive US-Staatsanleihen,
+ * findet sie über die WKN und gibt Kurs wie Historie heraus.
+ *
+ * WICHTIG - Anleihen notieren in PROZENT ihres Nennwerts, nicht in Euro je Stück. Ein Kurs von
+ * 92,37 bedeutet: 1.000 Euro Nennwert sind aktuell 923,70 Euro wert. Die Umrechnung passiert hier
+ * an der Quelle (Kurs geteilt durch 100), damit der Rest der Anwendung mit Anleihen genauso rechnen
+ * kann wie mit jedem anderen Wertpapier: Menge mal Kurs. Die "Menge" einer Anleihe ist ihr
+ * Nennwert.
+ */
+
+export interface BondHit {
+  isin: string
+  wkn: string
+  name: string
+}
+
+interface BondSearchHit {
+  entityType?: unknown
+  isin?: unknown
+  wkn?: unknown
+  name?: unknown
+}
+
+/**
+ * Eine WKN besteht aus Ziffern und Großbuchstaben, enthält aber NIE ein O oder ein I - genau
+ * deshalb, damit sie nicht mit der Null und der Eins verwechselt werden. Beim Abtippen passiert
+ * das trotzdem: aus "A3K0N8" wird "A3KON8" und die Suche findet nichts. Steht ein O oder I in
+ * einer WKN-artigen Eingabe, kann es also nur ein Lesefehler sein - dann wird ersetzt und erneut
+ * gesucht.
+ */
+function normalizeWkn(query: string): string | null {
+  const trimmed = query.trim().toUpperCase()
+  if (!/^[A-Z0-9]{6}$/.test(trimmed) || !/[OI]/.test(trimmed)) return null
+  return trimmed.replace(/O/g, '0').replace(/I/g, '1')
+}
+
+async function searchBondsRaw(query: string): Promise<BondHit[]> {
+  const data = (await getJson(
+    `${BASE}/instruments/search?searchValue=${encodeURIComponent(query.trim())}&limit=15`
+  )) as { list?: BondSearchHit[] } | null
+  return (data?.list ?? [])
+    .filter(
+      (h): h is { entityType: string; isin: string; wkn: string; name: string } =>
+        h.entityType === 'BOND' &&
+        typeof h.isin === 'string' &&
+        typeof h.wkn === 'string' &&
+        typeof h.name === 'string'
+    )
+    .map((h) => ({ isin: h.isin, wkn: h.wkn, name: h.name }))
+}
+
+/** Sucht Anleihen über WKN, ISIN oder Namen. WKN und ISIN findet die Suche direkt und exakt. */
+export async function searchBonds(query: string): Promise<BondHit[]> {
+  const hits = await searchBondsRaw(query)
+  if (hits.length > 0) return hits
+  const corrected = normalizeWkn(query)
+  return corrected ? searchBondsRaw(corrected) : []
+}
+
+interface BondSnapshot {
+  instrument?: { entityValue?: unknown; name?: unknown; wkn?: unknown }
+  bondsIssuer?: { isoCountry?: unknown; nameCountry?: unknown }
+  bondsDetails?: { isoCurrency?: unknown }
+  quote?: {
+    last?: unknown
+    isoCurrency?: unknown
+    unitType?: unknown
+    market?: { idNotation?: unknown }
+  }
+}
+
+export interface BondQuote {
+  /** Kurs je EINER Einheit Nennwert, also der Prozentkurs geteilt durch 100. */
+  price: number
+  currency: string
+  name: string
+  /** Interne onvista-Kennungen, für den Abruf der Historie. */
+  entityValue: string
+  idNotation: number
+  /** Sitzland des Emittenten in der englischen Schreibweise, oder null. */
+  country: string | null
+}
+
+/**
+ * Die Währung, auf die der Nennwert lautet - und damit die einzige, in der ein Anleihenwert
+ * überhaupt Sinn ergibt.
+ *
+ * Warum NICHT die Währung der Notierung: onvista wählt als Standardkurs je nach Handelslage
+ * einen anderen Platz, und die Plätze etikettieren unterschiedlich. Für dieselbe
+ * US-Staatsanleihe liefern Frankfurt, München, Stuttgart und die Commerzbank "USD", Baader
+ * Trading und Stuttgart TradeREBEL dagegen "EUR" - bei praktisch identischem Prozentkurs
+ * (99,18 gegenüber 99,20). Nachgemessen an der Notierungsliste einer einzigen Abfrage.
+ *
+ * Das ist auch sachlich richtig: ein Anleihenkurs ist ein PROZENTSATZ des Nennwerts und damit
+ * währungslos. 99,2 % von 1.100 Dollar Nennwert sind 1.091 Dollar - unabhängig davon, an
+ * welchem Platz und in welcher Etikettierung der Prozentsatz gestellt wurde. Wer stattdessen
+ * die Platzwährung nimmt, bewertet dieselbe Anleihe je nach Tageslaune einmal in Dollar und
+ * einmal in Euro; hier war das ein Sprung von rund 15 % im Vermögensverlauf.
+ */
+function denominationCurrency(snap: BondSnapshot | null): string | null {
+  const denominated = snap?.bondsDetails?.isoCurrency
+  if (typeof denominated === 'string' && denominated.length === 3) return denominated
+  const quoted = snap?.quote?.isoCurrency
+  return typeof quoted === 'string' ? quoted : null
+}
+
+async function getSnapshot(isin: string): Promise<BondSnapshot | null> {
+  return (await getJson(
+    `${BASE}/bonds/ISIN:${encodeURIComponent(isin.trim().toUpperCase())}/snapshot`
+  )) as BondSnapshot | null
+}
+
+/**
+ * Obergrenze für einen Prozentkurs. onvista setzt an Tagen ohne Umsatz den Platzhalter
+ * 999999.05 statt eines Kurses - in der Verlaufsreihe der US-Anleihe stand dadurch ein Tag mit
+ * 9,5 Millionen Euro, der das ganze Diagramm plattdrückte. Auch das Feld highPrice1Year der
+ * Momentaufnahme trägt denselben Wert, es ist also der hausübliche Platzhalter.
+ *
+ * 1000 % liegt weit über allem, was real vorkommt (lang laufende Hochkuponanleihen erreichen
+ * gut 150 %), und weit unter dem Platzhalter - dazwischen ist reichlich Luft.
+ */
+const MAX_PLAUSIBLE_PERCENT = 1000
+
+/** Umrechnung Prozentkurs -> Kurs je Einheit Nennwert; alles andere gilt als unbrauchbar. */
+function fromPercent(value: unknown, unitType: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
+  if (value > MAX_PLAUSIBLE_PERCENT) return null
+  // Sollte onvista eine Anleihe einmal nicht in Prozent notieren, lieber nichts liefern als eine
+  // um den Faktor 100 falsche Bewertung.
+  if (unitType !== 'PCT') return null
+  return value / 100
+}
+
+export async function getBondQuote(isin: string): Promise<BondQuote | null> {
+  const snap = await getSnapshot(isin)
+  const price = fromPercent(snap?.quote?.last, snap?.quote?.unitType)
+  // Die Währung kommt aus der STÜCKELUNG der Anleihe, nicht vom Handelsplatz - siehe
+  // Erklärung an denominationCurrency.
+  const currency = denominationCurrency(snap)
+  const entityValue = snap?.instrument?.entityValue
+  const idNotation = snap?.quote?.market?.idNotation
+  const name = snap?.instrument?.name
+  if (
+    price === null ||
+    typeof currency !== 'string' ||
+    typeof entityValue !== 'string' ||
+    typeof idNotation !== 'number'
+  ) {
+    return null
+  }
+  // Der ISO-Code ist die belastbarere Angabe; der deutsche Name dient nur als Rückfallebene,
+  // falls onvista den Code einmal nicht mitliefert.
+  const iso = snap?.bondsIssuer?.isoCountry
+  const nameCountry = snap?.bondsIssuer?.nameCountry
+  const country =
+    (typeof iso === 'string' ? countryFromIsoCode(iso) : null) ??
+    (typeof nameCountry === 'string' ? canonicalCountry(nameCountry) : null)
+
+  return {
+    price,
+    currency,
+    name: typeof name === 'string' ? name : isin,
+    entityValue,
+    idNotation,
+    country
+  }
+}
+
+interface EodHistory {
+  datetimeLast?: unknown
+  last?: unknown
+  unitType?: unknown
+}
+
+export interface BondHistory {
+  currency: string
+  points: { date: string; price: number }[]
+}
+
+/**
+ * Tages-Schlusskurse ab fromDate. onvista liefert zwei parallele Arrays (Zeitstempel in Sekunden,
+ * Kurse); die Historie reicht nur so weit zurück, wie die Anleihe an dem Platz notiert wird -
+ * datetimeStartAvailableHistory begrenzt das, ein früheres startDate wird stillschweigend
+ * zurechtgestutzt.
+ */
+export async function getBondHistory(isin: string, fromDate: string): Promise<BondHistory | null> {
+  const quote = await getBondQuote(isin)
+  if (!quote) return null
+  const data = (await getJson(
+    `${BASE}/instruments/BOND/${quote.entityValue}/eod_history` +
+      `?idNotation=${quote.idNotation}&range=Y10&startDate=${fromDate}`
+  )) as EodHistory | null
+
+  const times = data?.datetimeLast
+  const prices = data?.last
+  if (!Array.isArray(times) || !Array.isArray(prices) || times.length !== prices.length) return null
+
+  const points: { date: string; price: number }[] = []
+  for (let i = 0; i < times.length; i++) {
+    const seconds = times[i]
+    const price = fromPercent(prices[i], data?.unitType)
+    if (typeof seconds !== 'number' || price === null) continue
+    points.push({ date: new Date(seconds * 1000).toISOString().slice(0, 10), price })
+  }
+  if (points.length === 0) return null
+
+  // Bewusst die Währung aus getBondQuote (= Stückelung) statt data.isoCurrency: der
+  // Verlaufs-Endpunkt etikettiert nach Handelsplatz und würde dieselbe Reihe je nach
+  // Abrufzeitpunkt mal in Dollar, mal in Euro ausweisen.
+  return {
+    currency: quote.currency,
+    points: points.sort((a, b) => a.date.localeCompare(b.date))
+  }
 }

@@ -53,6 +53,39 @@ async function resolveSecurity(
   return null
 }
 
+/**
+ * Erkennungsmerkmal einer Buchung innerhalb einer Position: Art, Datum, Stückzahl, Preis und
+ * Währung. Zahlen werden gerundet, damit unterschiedliche Schreibweisen derselben Buchung
+ * ("1.5" gegen "1.50") zusammenfallen - die Genauigkeit reicht weit über alles hinaus, was
+ * zwei verschiedene Ausführungen unterscheiden würde.
+ */
+function bookingKey(t: {
+  type: 'BUY' | 'SELL'
+  date: string
+  quantity: number
+  price: number
+  currency: string
+}): string {
+  return [t.type, t.date, t.quantity.toFixed(8), t.price.toFixed(6), t.currency].join('|')
+}
+
+/**
+ * Zählt die vorhandenen Buchungen einer Position je Erkennungsmerkmal.
+ *
+ * Bewusst als ZÄHLUNG und nicht als bloße Ja/Nein-Prüfung: eine Order kann in zwei
+ * Teilausführungen zum selben Preis am selben Tag zerfallen, und beide gehören ins Depot.
+ * Enthält die Datei eine Buchung zweimal und die Datenbank sie einmal, wird genau eine
+ * ergänzt - beim erneuten Einlesen derselben Datei dagegen keine.
+ */
+function existingBookings(positionId: number): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const t of transactionsRepo.listTransactionsByPosition(positionId)) {
+    const key = bookingKey(t)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return counts
+}
+
 export async function importCsv(
   broker: BrokerFormat,
   csvText: string,
@@ -110,6 +143,7 @@ export async function importCsv(
   )
   const existingByIdentifier = new Map(existingPositions.map((p) => [p.identifier, p] as const))
   let transactionsImported = 0
+  let duplicatesSkipped = 0
   const affectedPositionIds: number[] = []
 
   for (const [identifier, group] of groups) {
@@ -138,6 +172,7 @@ export async function importCsv(
         sector: group.resolved.sector,
         region: group.resolved.region,
         subType: null,
+        cashType: null,
         purchaseDate: sortedRows[0].date,
         notes: null
       })
@@ -154,7 +189,17 @@ export async function importCsv(
       position = positionsRepo.updatePosition({ id: position.id, isin: sortedRows[0].isin })
     }
 
+    // Schon vorhandene Buchungen nicht erneut anlegen. Ohne das verdoppelt ein zweites
+    // Einlesen derselben Datei den kompletten Bestand.
+    const alreadyThere = existingBookings(position.id)
     for (const row of sortedRows) {
+      const key = bookingKey(row)
+      const seen = alreadyThere.get(key) ?? 0
+      if (seen > 0) {
+        alreadyThere.set(key, seen - 1)
+        duplicatesSkipped++
+        continue
+      }
       transactionsRepo.createTransaction({
         positionId: position.id,
         type: row.type,
@@ -172,7 +217,7 @@ export async function importCsv(
 
   // Nach dem Import zusammenführen: Positionen aus FRÜHEREN Importen können dasselbe Papier unter
   // einem anderen Börsenplatz führen. Die Zuordnung oben verhindert nur neue Doppelungen.
-  const dedupe = ledgerService.mergeDuplicatesByIsin()
+  const dedupe = ledgerService.mergeDuplicatePositions()
   if (dedupe.merged > 0) console.log('Zusammengeführte Positionen:', dedupe.removed.join(', '))
 
   // Nur noch vorhandene Positionen nachbearbeiten: Das Zusammenführen oben kann eine der eben
@@ -192,6 +237,7 @@ export async function importCsv(
   return {
     transactionsImported,
     positionsAffected: toRefresh.length,
+    duplicatesSkipped,
     unresolved
   }
 }

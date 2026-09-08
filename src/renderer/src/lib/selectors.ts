@@ -1,7 +1,7 @@
 import type { EtfCompositionEntry } from '@shared/types'
 import type { PositionValue } from '@shared/valueCalc'
 import { sectorLabelDe } from '@shared/sectors'
-import { ASSET_CLASS_LABELS } from './format'
+import { ASSET_CLASS_LABELS, CASH_SUB_TYPE_LABELS, CASH_TYPE_LABELS } from './format'
 import { displayClass } from '@shared/displayClass'
 import { countryToRegion } from './regionMap'
 
@@ -23,12 +23,15 @@ export interface Slice {
 /** Label für den Fondsanteil, dessen Länder Yahoo nicht preisgibt - bewusst sichtbar statt hochgerechnet. */
 export const UNRESOLVED_ETF_LABEL = 'ETF – Rest nicht aufschlüsselbar'
 const NO_SECTOR_LABEL = 'Ohne Sektorangabe'
+/** Guthaben ohne gewählte Kontoart - bewusst als eigene Scheibe statt stillschweigend auf
+ *  Girokonto geraten. */
+export const UNASSIGNED_CASH_LABEL = 'Nicht zugeordnet'
 
 /**
  * Sammelt Beträge je Scheibe UND merkt sich, welche Position wie viel dazu beigetragen hat.
  * Beides in einem Durchlauf, damit Diagramm und Detailansicht garantiert dieselben Zahlen zeigen.
  */
-function createAccumulator(): {
+export function createSliceAccumulator(): {
   add: (sliceLabel: string, positionName: string, amount: number) => void
   toSlices: () => Slice[]
 } {
@@ -71,7 +74,7 @@ export function positionBreakdown(values: PositionValue[]): Slice[] {
 
 /** Anlageklassen, wobei Aktien und ETFs bewusst GETRENNT ausgewiesen werden (nicht als ein Topf). */
 export function assetClassBreakdown(values: PositionValue[]): Slice[] {
-  const acc = createAccumulator()
+  const acc = createSliceAccumulator()
   for (const v of values) {
     if (v.valueEur === null || v.valueEur <= 0) continue
     // Anleihen zuerst abfangen: ein Anleihen-ETF bleibt technisch STOCK_ETF, gehört aber in
@@ -89,6 +92,27 @@ export function assetClassBreakdown(values: PositionValue[]): Slice[] {
 }
 
 /**
+ * Kontoarten innerhalb von Cash & Sonstiges: Girokonto, Tagesgeldkonto und Bargeld werden
+ * getrennt ausgewiesen, Immobilien und Sonstiges behalten ihre eigene Scheibe. Anleihen tauchen
+ * hier nicht auf - sie haben längst ihren eigenen Bereich (siehe displayClass).
+ */
+export function cashTypeBreakdown(values: PositionValue[]): Slice[] {
+  const acc = createSliceAccumulator()
+  for (const v of values) {
+    if (v.valueEur === null || v.valueEur <= 0) continue
+    if (v.position.assetClass !== 'CASH_OTHER') continue
+    const { cashType, subType } = v.position
+    const label = cashType
+      ? CASH_TYPE_LABELS[cashType]
+      : subType && subType !== 'CASH'
+        ? CASH_SUB_TYPE_LABELS[subType]
+        : UNASSIGNED_CASH_LABEL
+    acc.add(label, v.position.name, v.valueEur)
+  }
+  return acc.toSlices()
+}
+
+/**
  * Sektoren aller Aktien & ETFs. ETFs werden DURCHGESCHAUT: ihr Wert wird anhand der echten
  * Sektorgewichtung des Fonds auf die einzelnen Sektoren verteilt, statt als ein Klotz
  * "ETF/Diversifiziert" zu erscheinen. Yahoos Sektorgewichte decken den kompletten Fonds ab, hier
@@ -98,7 +122,7 @@ export function sectorBreakdown(
   values: PositionValue[],
   compositions: EtfCompositionEntry[]
 ): Slice[] {
-  const acc = createAccumulator()
+  const acc = createSliceAccumulator()
 
   for (const v of values) {
     // Anleihen bleiben außen vor: ein Rentenfonds hat keine Aktiensektoren, er würde nur als
@@ -154,13 +178,17 @@ export function regionBreakdown(
   compositions: EtfCompositionEntry[],
   grouping: RegionGrouping
 ): Slice[] {
-  const acc = createAccumulator()
+  const acc = createSliceAccumulator()
   const groupLabel = (country: string): string =>
     grouping === 'country' ? country : countryToRegion(country)
 
   for (const v of values) {
-    // Wie beim Sektor-Diagramm: Anleihen haben keine Länderaufteilung im Aktiensinn.
-    if (displayClass(v.position) !== 'STOCK_ETF' || v.valueEur === null || v.valueEur <= 0) continue
+    // Anders als beim Sektor-Diagramm sind Anleihen hier ausdrücklich dabei: eine
+    // US-Staatsanleihe ist US-Risiko, genau wie eine US-Aktie. Das Land kommt bei einer
+    // einzelnen Anleihe vom Emittenten (siehe priceService.fillBondCountries), bei einem
+    // Anleihen-ETF aus derselben Länderaufteilung wie bei jedem anderen Fonds.
+    const cls = displayClass(v.position)
+    if ((cls !== 'STOCK_ETF' && cls !== 'BOND') || v.valueEur === null || v.valueEur <= 0) continue
 
     if (v.position.securityType === 'ETF') {
       const parts = compositions.filter(

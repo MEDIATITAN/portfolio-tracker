@@ -39,33 +39,71 @@ export function recomputePosition(positionId: number): void {
 }
 
 /**
- * Führt Positionen zusammen, die dasselbe Wertpapier meinen.
+ * Löscht eine einzelne Buchung und rechnet die Position danach neu.
+ *
+ * War es die LETZTE Buchung, bleiben Bestand und Einstandspreis stehen, wie sie zuletzt
+ * berechnet wurden: die Position fällt damit in den manuellen Modus zurück (siehe
+ * Position.hasTransactions) und ist wieder von Hand editierbar. Sie auf null zu setzen wäre
+ * die schlechtere Wahl - man löscht eine fehlerhafte Buchung, um sie zu ersetzen, nicht um
+ * den Bestand zu verlieren.
+ */
+export function deleteTransaction(id: number): void {
+  const positionId = transactionsRepo.deleteTransaction(id)
+  if (positionId === null) return
+  recomputePosition(positionId)
+}
+
+/**
+ * Schlüssel, unter dem zwei Positionen als derselbe Vermögenswert gelten - oder null, wenn sich das
+ * nicht sicher entscheiden lässt und deshalb nichts zusammengeführt wird.
+ *
+ * Wertpapiere: ausschließlich die ISIN, die ist je Papier eindeutig. Über den Namen zu gehen wäre
+ * gefährlich - "Novo Nordisk A/S" heißt bei Yahoo sowohl die dänische Aktie als auch die
+ * US-Hinterlegungsaktie, die einen ganz anderen Kurs je Stück hat.
+ *
+ * Rohstoffe haben keine ISIN; dort ist der Schlüssel das Kürzel PLUS die Mengeneinheit. 2,5 Gramm
+ * und 1 Feinunze Gold sind zwar dasselbe Metall, ihre Buchungen dürfen aber nicht in einen Topf:
+ * Menge und Preis je Einheit würden sonst nicht mehr zusammenpassen. Ein physisch hinterlegter
+ * Gold-ETC hat ein eigenes Kürzel und bleibt dadurch ohnehin getrennt - er ist ein Wertpapier mit
+ * eigenem Kurs, kein Barren.
+ */
+function mergeKey(p: Position): string | null {
+  if (p.assetClass === 'STOCK_ETF') return p.isin ? `isin:${p.isin}` : null
+  if (p.assetClass === 'COMMODITY')
+    return p.identifier ? `commodity:${p.identifier}:${p.quantityUnit ?? ''}` : null
+  return null
+}
+
+/**
+ * Führt Positionen zusammen, die denselben Vermögenswert meinen.
  *
  * Warum das nötig ist: Die Wertpapiersuche liefert je nach Anfrage einen anderen BÖRSENPLATZ
  * desselben Papiers - der iShares Core MSCI World kam aus einem Import als "IWDA.L" (London),
  * aus einem anderen als "IWDA.AS" (Amsterdam). Der Bestand lag danach auf zwei Positionen, obwohl
- * es dieselbe ISIN ist.
+ * es dieselbe ISIN ist. Bei Rohstoffen entsteht dasselbe, wenn derselbe Bestand zweimal von Hand
+ * angelegt wird.
  *
- * Zusammengeführt wird ausschließlich über die ISIN - die ist je Wertpapier eindeutig. Über den
- * Namen zu gehen wäre gefährlich: "Novo Nordisk A/S" heißt bei Yahoo sowohl die dänische Aktie als
- * auch die US-Hinterlegungsaktie, die aber einen ganz anderen Kurs je Stück hat.
+ * Positionen OHNE Buchungen werden bewusst übersprungen: ihr Bestand steht nur in der Position
+ * selbst, etwa bei einem Geschenk ohne Kaufpreis. Nach dem Zusammenführen wird der Bestand aus dem
+ * Ledger neu berechnet - eine buchungslose Position würde dabei ersatzlos verschwinden.
  *
  * Bestehen bleibt die Position mit den meisten Buchungen; deren Kürzel bestimmt künftig den
  * Kursabruf. Die Buchungen der anderen werden umgehängt, danach wird per FIFO neu gerechnet.
  */
-export function mergeDuplicatesByIsin(): { merged: number; removed: string[] } {
-  const positions = positionsRepo.listPositions()
-  const byIsin = new Map<string, Position[]>()
-  for (const p of positions) {
-    if (!p.isin || p.assetClass !== 'STOCK_ETF') continue
-    const list = byIsin.get(p.isin)
+export function mergeDuplicatePositions(): { merged: number; removed: string[] } {
+  const groups = new Map<string, Position[]>()
+  for (const p of positionsRepo.listPositions()) {
+    if (!p.hasTransactions) continue
+    const key = mergeKey(p)
+    if (!key) continue
+    const list = groups.get(key)
     if (list) list.push(p)
-    else byIsin.set(p.isin, [p])
+    else groups.set(key, [p])
   }
 
   let merged = 0
   const removed: string[] = []
-  for (const [, group] of byIsin) {
+  for (const [, group] of groups) {
     if (group.length < 2) continue
     const sorted = [...group].sort(
       (a, b) =>
@@ -73,11 +111,18 @@ export function mergeDuplicatesByIsin(): { merged: number; removed: string[] } {
         transactionsRepo.countTransactionsForPosition(a.id)
     )
     const keep = sorted[0]
+    const notes = keep.notes ? [keep.notes] : []
     for (const drop of sorted.slice(1)) {
       transactionsRepo.moveTransactions(drop.id, keep.id)
+      // Notiz mitnehmen, bevor die Position gelöscht wird - sonst ginge der Vermerk verloren,
+      // woher ein Bestand stammt.
+      if (drop.notes && !notes.includes(drop.notes)) notes.push(drop.notes)
       positionsRepo.deletePosition(drop.id)
       removed.push(`${drop.identifier ?? drop.name} -> ${keep.identifier ?? keep.name}`)
       merged++
+    }
+    if (notes.length > (keep.notes ? 1 : 0)) {
+      positionsRepo.updatePosition({ id: keep.id, notes: notes.join(' / ') })
     }
     recomputePosition(keep.id)
   }

@@ -175,6 +175,13 @@ export function CsvImportPanel(): React.JSX.Element {
               {result.transactionsImported} Transaktion
               {result.transactionsImported === 1 ? '' : 'en'} aus {result.positionsAffected}{' '}
               Position{result.positionsAffected === 1 ? '' : 'en'} importiert.
+              {result.duplicatesSkipped > 0 && (
+                <span className="block text-slate-500 dark:text-slate-400">
+                  {result.duplicatesSkipped === 1
+                    ? '1 Buchung stand bereits so in der Datenbank und wurde übersprungen.'
+                    : `${result.duplicatesSkipped} Buchungen standen bereits so in der Datenbank und wurden übersprungen.`}
+                </span>
+              )}
             </p>
           )}
 

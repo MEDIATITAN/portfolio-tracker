@@ -4,6 +4,26 @@ import { ASSET_CLASS_LABELS } from '../../lib/format'
 import { DISPLAY_CLASS_ORDER } from '@shared/displayClass'
 import { useTheme } from '../../lib/ThemeContext'
 
+/** Waage - Einnahmen gegen Ausgaben. */
+function BudgetIcon(): React.JSX.Element {
+  return (
+    <svg
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 3v18" />
+      <path d="M5 7h14" />
+      <path d="M8 7l-3 6h6z" />
+      <path d="M16 7l-3 6h6z" />
+    </svg>
+  )
+}
+
 interface SidebarProps {
   page: Page
   classFilter: ClassFilter
@@ -11,6 +31,7 @@ interface SidebarProps {
   onNavigatePositions: () => void
   onNavigatePnl: () => void
   onNavigateTransactions: () => void
+  onNavigateBudget: () => void
 }
 
 const ASSET_CLASSES = DISPLAY_CLASS_ORDER
@@ -102,7 +123,8 @@ export function Sidebar({
   onNavigateDashboard,
   onNavigatePositions,
   onNavigatePnl,
-  onNavigateTransactions
+  onNavigateTransactions,
+  onNavigateBudget
 }: SidebarProps): React.JSX.Element {
   const [assetClassesOpen, setAssetClassesOpen] = useState(true)
   const { theme, toggleTheme } = useTheme()
@@ -169,6 +191,17 @@ export function Sidebar({
         >
           <ListIcon />
           <span>Positionen</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onNavigateBudget}
+          className={`mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
+            page === 'budget' ? 'bg-blue-500/15 text-blue-400' : 'text-slate-300 hover:bg-slate-800'
+          }`}
+        >
+          <BudgetIcon />
+          <span>Einnahmen &amp; Ausgaben</span>
         </button>
 
         <button
