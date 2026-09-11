@@ -16,6 +16,7 @@ interface TransactionRow {
   date: string
   broker: string | null
   notes: string | null
+  savings_plan_id: number | null
   created_at: string
 }
 
@@ -30,6 +31,7 @@ function rowToTransaction(row: TransactionRow): Transaction {
     date: row.date,
     broker: row.broker,
     notes: row.notes,
+    savingsPlanId: row.savings_plan_id ?? null,
     createdAt: row.created_at
   }
 }
@@ -43,13 +45,15 @@ export interface NewTransaction {
   date: string
   broker: string | null
   notes: string | null
+  /** Nur bei Buchungen, die ein Sparplan erzeugt hat. */
+  savingsPlanId?: number | null
 }
 
 export function createTransaction(input: NewTransaction): Transaction {
   const result = getDb()
     .prepare(
-      `INSERT INTO transactions (position_id, type, quantity, price, currency, date, broker, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO transactions (position_id, type, quantity, price, currency, date, broker, notes, savings_plan_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.positionId,
@@ -59,7 +63,8 @@ export function createTransaction(input: NewTransaction): Transaction {
       input.currency,
       input.date,
       input.broker,
-      input.notes
+      input.notes,
+      input.savingsPlanId ?? null
     )
   const row = getDb()
     .prepare('SELECT * FROM transactions WHERE id = ?')
@@ -83,6 +88,37 @@ export function deleteTransaction(id: number): number | null {
   if (!row) return null
   getDb().prepare('DELETE FROM transactions WHERE id = ?').run(id)
   return row.position_id
+}
+
+/** Alle Buchungen, die ein bestimmter Sparplan erzeugt hat. */
+export function listTransactionsByPlan(planId: number): Transaction[] {
+  const rows = getDb()
+    .prepare('SELECT * FROM transactions WHERE savings_plan_id = ? ORDER BY date ASC, id ASC')
+    .all(planId) as unknown as TransactionRow[]
+  return rows.map(rowToTransaction)
+}
+
+/**
+ * Entfernt eine vorgemerkte Sparplan-Buchung dieser Position aus dem angegebenen Monat und meldet,
+ * ob es eine gab.
+ *
+ * Damit ersetzt die echte Abrechnung des Brokers den Platzhalter, den der Sparplan vorab gebucht
+ * hat, statt ihn zu verdoppeln. Der Monat ist das richtige Maß und nicht das exakte Datum: der
+ * Broker führt nicht auf den Tag genau am eingestellten Termin aus, mal einen Werktag früher, mal
+ * später - Stückzahl und Preis weichen ohnehin ab, sonst hätte die vorhandene
+ * Doppelungserkennung des CSV-Imports schon gegriffen.
+ */
+export function deletePlanBookingInMonth(positionId: number, month: string): boolean {
+  const row = getDb()
+    .prepare(
+      `SELECT id FROM transactions
+       WHERE position_id = ? AND savings_plan_id IS NOT NULL AND substr(date, 1, 7) = ?
+       ORDER BY date ASC LIMIT 1`
+    )
+    .get(positionId, month) as unknown as { id: number } | undefined
+  if (!row) return false
+  getDb().prepare('DELETE FROM transactions WHERE id = ?').run(row.id)
+  return true
 }
 
 export function listTransactionsByPosition(positionId: number): Transaction[] {

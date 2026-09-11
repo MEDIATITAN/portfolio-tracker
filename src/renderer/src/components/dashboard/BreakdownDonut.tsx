@@ -1,6 +1,7 @@
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { UNASSIGNED_CASH_LABEL, UNRESOLVED_ETF_LABEL, type Slice } from '../../lib/selectors'
 import { formatEur } from '../../lib/format'
+import { mutedColor, seriesPalette } from '../../lib/chartColors'
 import { useTheme } from '../../lib/ThemeContext'
 
 interface BreakdownDonutProps {
@@ -24,39 +25,9 @@ interface BreakdownDonutProps {
   onDrillChange: (label: string | null) => void
 }
 
-// Zwei eigenständige Paletten statt einer gemeinsamen: im Hellmodus etwas kräftiger/dunkler
-// (gute Lesbarkeit auf Weiß), im Dunkelmodus deutlich heller (gute Lesbarkeit auf dunklen
-// Kartenhintergründen) - keine der beiden enthält nahezu schwarze oder nahezu weiße Töne.
-const LIGHT_COLORS = [
-  '#4f46e5',
-  '#2563eb',
-  '#16a34a',
-  '#d97706',
-  '#dc2626',
-  '#7c3aed',
-  '#0891b2',
-  '#db2777',
-  '#65a30d',
-  '#475569'
-]
-const DARK_COLORS = [
-  '#818cf8',
-  '#60a5fa',
-  '#4ade80',
-  '#fbbf24',
-  '#f87171',
-  '#a78bfa',
-  '#22d3ee',
-  '#f472b6',
-  '#a3e635',
-  '#94a3b8'
-]
-
 const OTHERS_LABEL = 'Sonstige'
 /** Sammel-/Unbekannt-Scheiben bekommen bewusst ein neutrales Grau statt einer Signalfarbe. */
 const MUTED_LABELS = new Set<string>([OTHERS_LABEL, UNRESOLVED_ETF_LABEL, UNASSIGNED_CASH_LABEL])
-const MUTED_COLOR_LIGHT = '#94a3b8'
-const MUTED_COLOR_DARK = '#64748b'
 
 /** Eingeklappt nur die größten Anteile zeigen, damit die Legende das Diagramm nicht zusammendrückt. */
 const COLLAPSED_SLICE_COUNT = 5
@@ -77,7 +48,7 @@ const byValueDesc = (a: Slice, b: Slice): number => b.valueEur - a.valueEur
  * Farbkreis, dass auch direkt benachbarte Scheiben klar unterscheidbar bleiben.
  */
 function buildPalette(count: number, isDark: boolean): string[] {
-  const curated = isDark ? DARK_COLORS : LIGHT_COLORS
+  const curated = seriesPalette(isDark)
   if (count <= curated.length) return curated
   const lightness = isDark ? 64 : 48
   return Array.from(
@@ -154,7 +125,7 @@ export function BreakdownDonut({
 }: BreakdownDonutProps): React.JSX.Element {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const mutedColor = isDark ? MUTED_COLOR_DARK : MUTED_COLOR_LIGHT
+  const mutedFill = mutedColor(isDark)
 
   const baseSorted = [...data].sort(byValueDesc)
   const baseCollapsed = collapseSlices(baseSorted, maxOthersShare)
@@ -268,9 +239,7 @@ export function BreakdownDonut({
                   {dataWithPercent.map((entry, i) => (
                     <Cell
                       key={entry.label}
-                      fill={
-                        MUTED_LABELS.has(entry.label) ? mutedColor : palette[i % palette.length]
-                      }
+                      fill={MUTED_LABELS.has(entry.label) ? mutedFill : palette[i % palette.length]}
                     />
                   ))}
                 </Pie>

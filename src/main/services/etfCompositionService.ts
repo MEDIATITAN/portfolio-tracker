@@ -40,9 +40,8 @@ async function ensureIsin(position: Position): Promise<string | null> {
   console.log(`ISIN für "${position.name}" ermittelt: ${found.isin} (onvista: "${found.name}")`)
   return found.isin
 }
-
 /**
- * Holt Sektor- und Länderaufteilung eines ETFs.
+ * Holt Sektor- und Länderaufteilung eines Fonds.
  *
  * SEKTOREN kommen von Yahoo: dort ist die Gewichtung vollständig (summiert auf 100% des Fonds) und
  * die Bezeichnungen passen zu denen der Einzelaktien. Bewusst NICHT von onvista - dessen Branchen
@@ -57,50 +56,82 @@ async function ensureIsin(position: Position): Promise<string | null> {
  * eine kleine Restlücke als Rundung geglättet oder offen ausgewiesen wird, trifft die
  * Renderer-Seite anhand der Abdeckung (siehe regionBreakdown).
  */
+async function fetchComposition(
+  identifier: string,
+  isin: string | null
+): Promise<Omit<EtfCompositionEntry, 'identifier'>[]> {
+  const now = new Date().toISOString()
+  const entries: Omit<EtfCompositionEntry, 'identifier'>[] = []
+
+  const holdings = await yahooService.getTopHoldings(identifier)
+  for (const s of holdings?.sectorWeightings ?? []) {
+    if (s.weight > 0)
+      entries.push({
+        kind: 'SECTOR',
+        label: sectorLabelDe(s.sector),
+        weight: s.weight,
+        fetchedAt: now
+      })
+  }
+
+  const fromOnvista = isin ? await onvistaService.getCountryBreakdown(isin) : null
+
+  if (fromOnvista) {
+    for (const w of fromOnvista.weights) {
+      entries.push({ kind: 'COUNTRY', label: w.country, weight: w.weight, fetchedAt: now })
+    }
+  } else if (holdings) {
+    // Rückfall: Länder der abrufbaren Top-Holdings einzeln auflösen und summieren.
+    const byCountry = new Map<string, number>()
+    for (const h of holdings.holdings) {
+      if (h.weight <= 0) continue
+      const country = await resolveCountry(h.symbol)
+      if (!country) continue
+      byCountry.set(country, (byCountry.get(country) ?? 0) + h.weight)
+    }
+    for (const [country, weight] of byCountry) {
+      entries.push({ kind: 'COUNTRY', label: country, weight, fetchedAt: now })
+    }
+  }
+
+  return entries
+}
+
+/** Zusammensetzung eines gehaltenen Fonds, höchstens einmal pro Woche neu geholt. */
 export async function ensureComposition(position: Position): Promise<void> {
   const identifier = position.identifier
   if (!identifier || position.securityType !== 'ETF') return
   if (isFresh(etfCompositionRepo.lastFetchedAt(identifier))) return
 
   try {
-    const now = new Date().toISOString()
-    const entries: Omit<EtfCompositionEntry, 'identifier'>[] = []
-
-    const holdings = await yahooService.getTopHoldings(identifier)
-    for (const s of holdings?.sectorWeightings ?? []) {
-      if (s.weight > 0)
-        entries.push({
-          kind: 'SECTOR',
-          label: sectorLabelDe(s.sector),
-          weight: s.weight,
-          fetchedAt: now
-        })
-    }
-
     const isin = await ensureIsin(position)
-    const fromOnvista = isin ? await onvistaService.getCountryBreakdown(isin) : null
-
-    if (fromOnvista) {
-      for (const w of fromOnvista.weights) {
-        entries.push({ kind: 'COUNTRY', label: w.country, weight: w.weight, fetchedAt: now })
-      }
-    } else if (holdings) {
-      // Rückfall: Länder der abrufbaren Top-Holdings einzeln auflösen und summieren.
-      const byCountry = new Map<string, number>()
-      for (const h of holdings.holdings) {
-        if (h.weight <= 0) continue
-        const country = await resolveCountry(h.symbol)
-        if (!country) continue
-        byCountry.set(country, (byCountry.get(country) ?? 0) + h.weight)
-      }
-      for (const [country, weight] of byCountry) {
-        entries.push({ kind: 'COUNTRY', label: country, weight, fetchedAt: now })
-      }
-    }
-
+    const entries = await fetchComposition(identifier, isin)
     if (entries.length > 0) etfCompositionRepo.replaceComposition(identifier, entries)
   } catch (err) {
     console.error(`ETF-Zusammensetzung für ${identifier} konnte nicht geladen werden:`, err)
+  }
+}
+
+/**
+ * Zusammensetzung eines Vergleichsindex (S&P 500, MSCI World), abgelegt in derselben Tabelle wie
+ * die der eigenen Fonds.
+ *
+ * Gebraucht für den Zusammensetzungs-Vergleich im Analyse-Bereich: ohne die Sektor- und
+ * Länderaufteilung des Index ließen sich nur die groben Anlageklassen gegenüberstellen. Die ISIN
+ * steht fest im Code (siehe BENCHMARK_UNIVERSES) - anders als bei einer eigenen Position gibt es
+ * hier nichts zu suchen und nichts zurückzuschreiben.
+ *
+ * Hält jemand denselben Fonds selbst (IWDA), teilen sich beide Seiten den Eintrag: es ist derselbe
+ * Identifier, dieselbe Quelle und dieselbe Aufteilung.
+ */
+export async function ensureIndexComposition(identifier: string, isin?: string): Promise<void> {
+  if (isFresh(etfCompositionRepo.lastFetchedAt(identifier))) return
+
+  try {
+    const entries = await fetchComposition(identifier, isin ?? null)
+    if (entries.length > 0) etfCompositionRepo.replaceComposition(identifier, entries)
+  } catch (err) {
+    console.error(`Zusammensetzung des Vergleichsindex ${identifier} fehlt:`, err)
   }
 }
 

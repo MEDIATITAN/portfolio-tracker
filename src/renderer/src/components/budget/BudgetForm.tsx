@@ -1,11 +1,19 @@
 import { useState } from 'react'
-import type { BudgetItem, BudgetItemType, BudgetPeriod, NewBudgetItem } from '@shared/types'
+import type {
+  BudgetItem,
+  BudgetItemType,
+  BudgetPeriod,
+  NewBudgetItem,
+  Position
+} from '@shared/types'
 import { PERIOD_LABELS, PERIOD_ORDER } from '@shared/budget'
 import { CURRENCY_ORDER, SUPPORTED_CURRENCIES } from '@shared/currencies'
 import { inputClass, labelClass } from '../positions/formStyles'
 
 interface BudgetFormProps {
   initial?: BudgetItem | null
+  /** Konten, auf die gebucht werden kann - nur Guthaben haben einen Kontostand. */
+  accounts: Position[]
   onSubmit: (input: NewBudgetItem) => void
   onCancel: () => void
   submitting: boolean
@@ -40,6 +48,7 @@ function emptyForm(): NewBudgetItem {
     currency: 'EUR',
     period: 'MONTHLY',
     category: null,
+    accountPositionId: null,
     active: true,
     notes: null
   }
@@ -53,6 +62,7 @@ function toNewItem(item: BudgetItem): NewBudgetItem {
     currency: item.currency,
     period: item.period,
     category: item.category,
+    accountPositionId: item.accountPositionId,
     active: item.active,
     notes: item.notes
   }
@@ -60,6 +70,7 @@ function toNewItem(item: BudgetItem): NewBudgetItem {
 
 export function BudgetForm({
   initial,
+  accounts,
   onSubmit,
   onCancel,
   submitting
@@ -151,6 +162,31 @@ export function BudgetForm({
             <option key={c} value={c} />
           ))}
         </datalist>
+      </label>
+
+      <label className={labelClass}>
+        Konto
+        <select
+          className={inputClass}
+          value={form.accountPositionId ?? ''}
+          onChange={(e) =>
+            update('accountPositionId', e.target.value ? Number(e.target.value) : null)
+          }
+        >
+          <option value="">– keins –</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+        <span className="mt-1 block text-xs font-normal text-slate-500 dark:text-slate-400">
+          {form.accountPositionId === null
+            ? 'Ohne Konto wird nur gerechnet, kein Kontostand verändert.'
+            : form.type === 'INCOME'
+              ? 'Wird jeden Monat auf diesen Kontostand aufgeschlagen, ab dem laufenden Monat.'
+              : 'Wird jeden Monat von diesem Kontostand abgezogen, ab dem laufenden Monat.'}
+        </span>
       </label>
 
       <label className={labelClass}>

@@ -33,6 +33,18 @@ export function getDb(): DatabaseSync {
     // Ohne CHECK: SQLite erlaubt bei ADD COLUMN keine nachträgliche Beschränkung. Die
     // zulässigen Werte gibt der Typ CashType vor, geschrieben wird nur über das Formular.
     ensureColumn(database, 'positions', 'cash_type', 'TEXT')
+    // Verweis auf den Sparplan, der diese Buchung erzeugt hat. Ohne Fremdschlüssel, weil ADD
+    // COLUMN in SQLite keinen nachträglich hinzufügen kann - das Aufräumen beim Löschen eines
+    // Plans übernimmt deshalb savingsPlanRepo.
+    ensureColumn(database, 'transactions', 'savings_plan_id', 'INTEGER')
+    // Uhrzeit der Sparplan-Ausführung, 'HH:MM'. Nachgereicht, weil die Tabelle bei bestehenden
+    // Installationen schon ohne sie angelegt wurde - CREATE TABLE IF NOT EXISTS ergänzt nichts.
+    ensureColumn(database, 'savings_plans', 'execution_time', 'TEXT')
+    // Konto, auf das ein Budgetposten bucht, und ab welchem Monat. Nachgereicht für bestehende
+    // Installationen - CREATE TABLE IF NOT EXISTS ergänzt an einer vorhandenen Tabelle nichts.
+    ensureColumn(database, 'budget_items', 'account_position_id', 'INTEGER')
+    ensureColumn(database, 'budget_items', 'account_since', 'TEXT')
+    ensureColumn(database, 'budget_bookings', 'reverted_at', 'TEXT')
 
     const seedStmt = database.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
     for (const [key, value] of Object.entries(SEED_SETTINGS)) {

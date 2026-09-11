@@ -3,8 +3,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { DashboardPage } from './pages/DashboardPage'
 import { PositionsPage } from './pages/PositionsPage'
 import { PnlPage } from './pages/PnlPage'
+import { AnalysePage } from './pages/AnalysePage'
 import { TransactionsPage } from './pages/TransactionsPage'
 import { BudgetPage } from './pages/BudgetPage'
+import { SavingsPlansPage } from './pages/SavingsPlansPage'
 import { Sidebar } from './components/layout/Sidebar'
 import { ThemeProvider } from './lib/ThemeContext'
 import type { ClassFilter, Page } from './lib/navigation'
@@ -36,8 +38,10 @@ function AppShell(): React.JSX.Element {
         }}
         onNavigatePositions={() => setPage('positions')}
         onNavigatePnl={() => setPage('pnl')}
+        onNavigateAnalyse={() => setPage('analyse')}
         onNavigateTransactions={() => setPage('transactions')}
         onNavigateBudget={() => setPage('budget')}
+        onNavigateSavingsPlans={() => setPage('savingsPlans')}
       />
       <main className="min-w-0 flex-1 overflow-y-auto">
         {page === 'dashboard' && (
@@ -48,8 +52,10 @@ function AppShell(): React.JSX.Element {
         )}
         {page === 'positions' && <PositionsPage />}
         {page === 'pnl' && <PnlPage />}
+        {page === 'analyse' && <AnalysePage />}
         {page === 'transactions' && <TransactionsPage />}
         {page === 'budget' && <BudgetPage />}
+        {page === 'savingsPlans' && <SavingsPlansPage />}
       </main>
     </div>
   )

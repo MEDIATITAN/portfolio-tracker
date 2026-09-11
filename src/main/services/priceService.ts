@@ -5,7 +5,11 @@ import * as snapshotsRepo from '../db/snapshotsRepo'
 import * as settingsRepo from '../db/settingsRepo'
 import * as historicalRepo from '../db/historicalRepo'
 import * as intradayRepo from '../db/intradayRepo'
+import * as savingsPlanRepo from '../db/savingsPlanRepo'
+import * as transactionsRepo from '../db/transactionsRepo'
 import * as etfCompositionService from './etfCompositionService'
+import * as savingsPlanService from './savingsPlanService'
+import * as budgetBookingService from './budgetBookingService'
 import * as yahooService from './yahooService'
 import * as coingeckoService from './coingeckoService'
 import * as binanceService from './binanceService'
@@ -260,6 +264,15 @@ export async function refreshAll(): Promise<RefreshResult> {
   }
 
   await repairContradictedSeries()
+
+  // Fällige Sparplan-Ausführungen nachbuchen, bevor unten der Snapshot entsteht - sonst fehlte
+  // der frisch gekaufte Anteil im Vermögensverlauf bis zum nächsten Abruf.
+  await ensureHistoryForSavingsPlans()
+  savingsPlanService.runDuePlans()
+
+  // Fällige Monatsraten der Budgetposten auf ihre Konten buchen. Verändert Kontostände, deshalb
+  // streng einmal je Monat - siehe budgetBookingService.
+  budgetBookingService.runDueBookings()
 
   // Frankfurter: alle Fremdwährungen aus Positionen + frisch abgerufenen Kursen, ein Batch-Call.
   const settings = settingsRepo.getSettings()
@@ -551,10 +564,16 @@ function staleBefore(): string {
  * das ist dem Nutzer bekannt). Fehler hier dürfen das Anlegen/Bearbeiten NICHT blockieren - die
  * historischen Daten sind eine Zusatzfunktion, kein Kernbestandteil.
  */
-export async function ensureHistoricalData(position: Position): Promise<void> {
+export async function ensureHistoricalData(
+  position: Position,
+  /** Weiter zurückreichender Startpunkt, z.B. der Beginn eines Sparplans. */
+  fromDateOverride?: string
+): Promise<void> {
   if (position.assetClass === 'CASH_OTHER' || !position.identifier) return
 
-  const fromDate = (position.purchaseDate ?? position.createdAt).slice(0, 10)
+  const ownDate = (position.purchaseDate ?? position.createdAt).slice(0, 10)
+  const fromDate =
+    fromDateOverride !== undefined && fromDateOverride < ownDate ? fromDateOverride : ownDate
   const alreadyCoveredFrom = historicalRepo.earliestHistoricalDate(position.identifier)
   const alreadyCoveredTo = historicalRepo.latestHistoricalDate(position.identifier)
   // Nicht nur prüfen, ob die Reihe weit genug ZURÜCK reicht, sondern auch, ob sie bis fast
@@ -601,6 +620,94 @@ export async function ensureHistoricalData(position: Position): Promise<void> {
   } catch (err) {
     console.error(`Historische Daten für ${position.identifier} konnten nicht geladen werden:`, err)
   }
+}
+
+/**
+ * Sorgt dafür, dass die Kursreihen bis zum Beginn der Sparpläne zurückreichen.
+ *
+ * Nötig, weil eine Kursreihe sonst erst beim Anlegen der Position beginnt. Ein Sparplan, der
+ * früher startet, fände für seine ersten Ausführungen keinen Kurs und könnte sie nicht buchen -
+ * bei einer erst kürzlich angelegten Position also gar keine.
+ */
+export async function ensureHistoryForSavingsPlans(): Promise<void> {
+  const positions = new Map(positionsRepo.listPositions().map((p) => [p.id, p]))
+  for (const plan of savingsPlanRepo.listSavingsPlans()) {
+    if (!plan.active) continue
+    const position = positions.get(plan.positionId)
+    if (!position?.identifier) continue
+    const earliest = historicalRepo.earliestHistoricalDate(position.identifier)
+    if (earliest !== null && earliest <= plan.startDate) continue
+
+    // Reicht die Quelle selbst nicht so weit zurück, bliebe die Reihe auch nach dem Abruf zu
+    // kurz - ohne diese Merkung liefe bei JEDEM Kursabruf ein voller Verlaufsabruf, für immer.
+    const triedKey = `plan_history_from:${position.identifier}`
+    const tried = settingsRepo.getRawSetting(triedKey)
+    if (tried !== null && tried <= plan.startDate) continue
+    settingsRepo.setRawSetting(triedKey, plan.startDate)
+
+    // Die vorhandene Reihe verwerfen: ensureHistoricalData ergänzt sie nur, und eine bereits
+    // vorhandene, zu kurze Reihe würde die Prüfung "reicht weit genug zurück" nie bestehen.
+    historicalRepo.deleteHistoricalPrices(position.identifier)
+    await ensureHistoricalData(position, plan.startDate)
+  }
+}
+
+/**
+ * Sorgt dafür, dass die Kursreihen so weit zurückreichen, wie eine Position tatsächlich gehalten
+ * wurde - Grundlage für den Vergleich im Analyse-Bereich.
+ *
+ * Eine Kursreihe beginnt normalerweise beim Anlegen der Position. Wer ein Papier 2020 gekauft, es
+ * aber erst 2025 in den Tracker eingetragen hat, hat für die fünf Jahre dazwischen keine Kurse -
+ * die Position taucht in der Rückrechnung dann erst 2025 auf und sieht aus wie eine frische
+ * Einzahlung. Gemessen an den echten Daten betrifft das sechs Positionen, darunter eine seit 2020
+ * gehaltene.
+ *
+ * Anders als ensureHistoryForSavingsPlans wird die vorhandene Reihe hier NICHT vorher gelöscht.
+ * Der Primärschlüssel (identifier, date) macht den Abruf zu einem reinen Ergänzen, und ein
+ * fehlschlagender Abruf kann so keine bereits vorhandenen Kurse vernichten.
+ */
+export async function ensureHistoryForAnalysis(
+  fromDate: string,
+  onProgress?: (event: { done: number; total: number; label: string }) => void
+): Promise<void> {
+  const firstTransaction = new Map<number, string>()
+  for (const t of transactionsRepo.listAllTransactions()) {
+    const known = firstTransaction.get(t.positionId)
+    if (known === undefined || t.date < known) firstTransaction.set(t.positionId, t.date)
+  }
+
+  const todo: { position: Position; from: string }[] = []
+  for (const position of positionsRepo.listPositions()) {
+    if (position.assetClass === 'CASH_OTHER' || !position.identifier) continue
+
+    // Nur so weit zurück, wie das Papier wirklich gehalten wurde. Sonst liefen für jede erst
+    // kürzlich gekaufte Position Jahre an Kursen ins Leere - Daten, die in der Rechnung mit
+    // Stückzahl 0 multipliziert würden.
+    const ownStart = (position.purchaseDate ?? position.createdAt).slice(0, 10)
+    const heldSince = firstTransaction.get(position.id) ?? ownStart
+    const needed = heldSince > fromDate ? heldSince : fromDate
+
+    const earliest = historicalRepo.earliestHistoricalDate(position.identifier)
+    if (earliest !== null && earliest <= needed) continue
+
+    // Reicht die Quelle selbst nicht so weit zurück (CoinGecko liefert kostenlos nur 365 Tage),
+    // bliebe die Reihe auch nach dem Abruf zu kurz - ohne diesen Vermerk liefe der volle
+    // Verlaufsabruf bei jedem Öffnen der Analyse-Seite erneut.
+    const triedKey = `analysis_history_from:${position.identifier}`
+    const tried = settingsRepo.getRawSetting(triedKey)
+    if (tried !== null && tried <= needed) continue
+
+    todo.push({ position, from: needed })
+  }
+
+  let done = 0
+  for (const { position, from } of todo) {
+    onProgress?.({ done, total: todo.length, label: position.name })
+    settingsRepo.setRawSetting(`analysis_history_from:${position.identifier}`, from)
+    await ensureHistoricalData(position, from)
+    done++
+  }
+  onProgress?.({ done, total: todo.length, label: '' })
 }
 
 /**

@@ -115,7 +115,12 @@ function TransactionDetails({
               <td className="py-1 text-right font-medium">
                 {formatMoney(t.quantity * t.price, t.currency)}
               </td>
-              <td className="py-1 pl-4 text-slate-400 dark:text-slate-500">{t.broker ?? '–'}</td>
+              <td className="py-1 pl-4 text-slate-400 dark:text-slate-500">
+                {/* Vorgemerkte Sparplan-Buchungen als solche kennzeichnen: sie stammen nicht vom
+                    Broker, sondern aus dem Kurs des Ausführungstages, und werden von der echten
+                    Abrechnung ersetzt. */}
+                {t.savingsPlanId !== null ? 'Sparplan (vorgemerkt)' : (t.broker ?? '–')}
+              </td>
               <td className="py-1 pl-2 text-right">
                 <button
                   type="button"
@@ -220,180 +225,186 @@ export function PositionsTable({
             <h2 className="mb-2 text-sm font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400">
               {ASSET_CLASS_LABELS[assetClass]}
             </h2>
-            <table className="w-full overflow-hidden rounded-lg border border-slate-200 bg-white text-sm dark:border-slate-700 dark:bg-slate-900">
-              <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                <tr>
-                  <th className="px-3 py-2 font-medium">Name</th>
-                  <th className="px-3 py-2 font-medium">Menge</th>
-                  <th className="px-3 py-2 font-medium">Kurs (EUR)</th>
-                  <th className="px-3 py-2 font-medium">Kaufpreis (EUR)</th>
-                  <th className="px-3 py-2 font-medium">Wert (EUR)</th>
-                  <th className="px-3 py-2 font-medium">Gewinn/Verlust</th>
-                  <th className="px-3 py-2 font-medium"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {group.map(
-                  ({
-                    position,
-                    valueEur,
-                    priceEur,
-                    valueNative,
-                    avgCostBasisEur,
-                    gainLossEur,
-                    stale,
-                    fetchError
-                  }) => {
-                    const unitSuffix = position.quantityUnit
-                      ? QUANTITY_UNIT_SUFFIX[position.quantityUnit]
-                      : null
-                    // Cash in einer anderen Währung als Euro - dann sind Betrag und Wechselkurs
-                    // eine eigene Information, nicht nur der umgerechnete Eurowert.
-                    const foreignCash =
-                      position.assetClass === 'CASH_OTHER' && position.currency !== 'EUR'
-                    const fxRate = foreignCash
-                      ? findFxRate(fxRates, position.currency, 'EUR')
-                      : null
-                    const positionTransactions = byPosition.get(position.id) ?? []
-                    const expandable = positionTransactions.length > 0
-                    const expanded = expandedId === position.id
-                    const buyCount = positionTransactions.filter((t) => t.type === 'BUY').length
-                    const isBond = isBondIdentifier(position.identifier)
-                    const percent = isBond ? bondPercent(position.quantity, valueNative) : null
+            {/* Waagerecht scrollbar, damit die Knöpfe ganz rechts auch in einem schmalen Fenster
+                erreichbar bleiben, statt von der Karte abgeschnitten zu werden. */}
+            <div className="scroll-subtle overflow-x-auto">
+              <table className="w-full min-w-[52rem] overflow-hidden rounded-lg border border-slate-200 bg-white text-sm dark:border-slate-700 dark:bg-slate-900">
+                <thead className="bg-slate-50 text-left text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Name</th>
+                    <th className="px-3 py-2 font-medium">Menge</th>
+                    <th className="px-3 py-2 font-medium">Kurs (EUR)</th>
+                    <th className="px-3 py-2 font-medium">Kaufpreis (EUR)</th>
+                    <th className="px-3 py-2 font-medium">Wert (EUR)</th>
+                    <th className="px-3 py-2 font-medium">Gewinn/Verlust</th>
+                    <th className="px-3 py-2 font-medium"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {group.map(
+                    ({
+                      position,
+                      valueEur,
+                      priceEur,
+                      valueNative,
+                      avgCostBasisEur,
+                      gainLossEur,
+                      stale,
+                      fetchError
+                    }) => {
+                      const unitSuffix = position.quantityUnit
+                        ? QUANTITY_UNIT_SUFFIX[position.quantityUnit]
+                        : null
+                      // Cash in einer anderen Währung als Euro - dann sind Betrag und Wechselkurs
+                      // eine eigene Information, nicht nur der umgerechnete Eurowert.
+                      const foreignCash =
+                        position.assetClass === 'CASH_OTHER' && position.currency !== 'EUR'
+                      const fxRate = foreignCash
+                        ? findFxRate(fxRates, position.currency, 'EUR')
+                        : null
+                      const positionTransactions = byPosition.get(position.id) ?? []
+                      const expandable = positionTransactions.length > 0
+                      const expanded = expandedId === position.id
+                      const buyCount = positionTransactions.filter((t) => t.type === 'BUY').length
+                      const isBond = isBondIdentifier(position.identifier)
+                      const percent = isBond ? bondPercent(position.quantity, valueNative) : null
 
-                    return (
-                      <Fragment key={position.id}>
-                        <tr
-                          onClick={() => expandable && setExpandedId(expanded ? null : position.id)}
-                          className={`border-t border-slate-100 text-slate-900 dark:border-slate-800 dark:text-slate-100 ${
-                            expandable
-                              ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50'
-                              : ''
-                          } ${expanded ? 'bg-slate-50 dark:bg-slate-800/50' : ''}`}
-                        >
-                          <td className="px-3 py-2">
-                            {expandable && (
-                              // Dreieck statt Text: zeigt Aufklappbarkeit an, ohne die Spalte zu verbreitern.
-                              <span className="mr-1.5 inline-block w-2 text-slate-400 dark:text-slate-500">
-                                {expanded ? '▾' : '▸'}
-                              </span>
-                            )}
-                            {position.name}
-                            {isSoldOut(position) && (
-                              <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                                verkauft
-                              </span>
-                            )}
-                            {categoryLabel(position) && (
-                              <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">
-                                ({categoryLabel(position)})
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2">
-                            {assetClass === 'CASH_OTHER'
-                              ? // Bei Fremdwährung den GEHALTENEN Betrag zeigen - sonst sähe man nur
-                                // den Eurowert und wüsste nicht, wie viel Dollar oder Franken
-                                // tatsächlich auf dem Konto liegen.
-                                foreignCash
-                                ? formatMoney(position.manualValue, position.currency)
-                                : '–'
-                              : `${formatNumber(position.quantity)}${unitSuffix ? ` ${unitSuffix}` : ''}`}
-                          </td>
-                          <td className="px-3 py-2">
-                            {assetClass === 'CASH_OTHER' ? (
-                              foreignCash ? (
-                                // Statt eines Börsenkurses der angewandte Wechselkurs.
-                                <span className="text-slate-500 dark:text-slate-400">
-                                  {fxRate !== null
-                                    ? `${formatNumber(fxRate)} €/${position.currency}`
-                                    : 'kein Wechselkurs'}
+                      return (
+                        <Fragment key={position.id}>
+                          <tr
+                            onClick={() =>
+                              expandable && setExpandedId(expanded ? null : position.id)
+                            }
+                            className={`border-t border-slate-100 text-slate-900 dark:border-slate-800 dark:text-slate-100 ${
+                              expandable
+                                ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                                : ''
+                            } ${expanded ? 'bg-slate-50 dark:bg-slate-800/50' : ''}`}
+                          >
+                            <td className="px-3 py-2">
+                              {expandable && (
+                                // Dreieck statt Text: zeigt Aufklappbarkeit an, ohne die Spalte zu verbreitern.
+                                <span className="mr-1.5 inline-block w-2 text-slate-400 dark:text-slate-500">
+                                  {expanded ? '▾' : '▸'}
+                                </span>
+                              )}
+                              {position.name}
+                              {isSoldOut(position) && (
+                                <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                  verkauft
+                                </span>
+                              )}
+                              {categoryLabel(position) && (
+                                <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">
+                                  ({categoryLabel(position)})
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              {assetClass === 'CASH_OTHER'
+                                ? // Bei Fremdwährung den GEHALTENEN Betrag zeigen - sonst sähe man nur
+                                  // den Eurowert und wüsste nicht, wie viel Dollar oder Franken
+                                  // tatsächlich auf dem Konto liegen.
+                                  foreignCash
+                                  ? formatMoney(position.manualValue, position.currency)
+                                  : '–'
+                                : `${formatNumber(position.quantity)}${unitSuffix ? ` ${unitSuffix}` : ''}`}
+                            </td>
+                            <td className="px-3 py-2">
+                              {assetClass === 'CASH_OTHER' ? (
+                                foreignCash ? (
+                                  // Statt eines Börsenkurses der angewandte Wechselkurs.
+                                  <span className="text-slate-500 dark:text-slate-400">
+                                    {fxRate !== null
+                                      ? `${formatNumber(fxRate)} €/${position.currency}`
+                                      : 'kein Wechselkurs'}
+                                  </span>
+                                ) : (
+                                  '–'
+                                )
+                              ) : priceEur !== null ? (
+                                <span
+                                  className={stale ? 'text-amber-600 dark:text-amber-500' : ''}
+                                  title={fetchError ?? undefined}
+                                >
+                                  {percent !== null ? formatPercent(percent) : formatEur(priceEur)}
+                                  {assetClass === 'COMMODITY' ? ' /oz' : ''}
+                                  {stale ? ' *' : ''}
                                 </span>
                               ) : (
-                                '–'
-                              )
-                            ) : priceEur !== null ? (
-                              <span
-                                className={stale ? 'text-amber-600 dark:text-amber-500' : ''}
-                                title={fetchError ?? undefined}
-                              >
-                                {percent !== null ? formatPercent(percent) : formatEur(priceEur)}
-                                {assetClass === 'COMMODITY' ? ' /oz' : ''}
-                                {stale ? ' *' : ''}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 dark:text-slate-500">
-                                noch kein Kurs
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2">
-                            {isBond && position.avgCostBasis !== null
-                              ? formatPercent(position.avgCostBasis * 100)
-                              : formatEur(avgCostBasisEur)}
-                            {buyCount > 1 ? (
-                              <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                Ø aus {buyCount} Käufen
-                              </span>
-                            ) : (
-                              position.purchaseDate && (
-                                <span className="block text-xs text-slate-400 dark:text-slate-500">
-                                  seit {formatDate(position.purchaseDate)}
+                                <span className="text-slate-400 dark:text-slate-500">
+                                  noch kein Kurs
                                 </span>
-                              )
-                            )}
-                          </td>
-                          <td className="px-3 py-2 font-medium">
-                            {valueEur !== null ? (
-                              formatEur(valueEur)
-                            ) : (
-                              <span className="font-normal text-slate-400 dark:text-slate-500">
-                                noch kein Kurs
-                              </span>
-                            )}
-                          </td>
-                          <td
-                            className={`px-3 py-2 ${gainLossEur !== null && gainLossEur < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}
-                          >
-                            {gainLossEur !== null ? formatEur(gainLossEur) : '–'}
-                          </td>
-                          {/* stopPropagation: sonst klappt ein Klick auf Bearbeiten/Löschen zusätzlich
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              {isBond && position.avgCostBasis !== null
+                                ? formatPercent(position.avgCostBasis * 100)
+                                : formatEur(avgCostBasisEur)}
+                              {buyCount > 1 ? (
+                                <span className="block text-xs text-slate-400 dark:text-slate-500">
+                                  Ø aus {buyCount} Käufen
+                                </span>
+                              ) : (
+                                position.purchaseDate && (
+                                  <span className="block text-xs text-slate-400 dark:text-slate-500">
+                                    seit {formatDate(position.purchaseDate)}
+                                  </span>
+                                )
+                              )}
+                            </td>
+                            <td className="px-3 py-2 font-medium">
+                              {valueEur !== null ? (
+                                formatEur(valueEur)
+                              ) : (
+                                <span className="font-normal text-slate-400 dark:text-slate-500">
+                                  noch kein Kurs
+                                </span>
+                              )}
+                            </td>
+                            <td
+                              className={`px-3 py-2 ${gainLossEur !== null && gainLossEur < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}
+                            >
+                              {gainLossEur !== null ? formatEur(gainLossEur) : '–'}
+                            </td>
+                            {/* stopPropagation: sonst klappt ein Klick auf Bearbeiten/Löschen zusätzlich
                           die Buchungsliste auf oder zu. */}
-                          <td
-                            className="px-3 py-2 text-right whitespace-nowrap"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              onClick={() => onEdit(position)}
-                              className="mr-3 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                            <td
+                              className="px-3 py-2 text-right whitespace-nowrap"
+                              onClick={(e) => e.stopPropagation()}
                             >
-                              Bearbeiten
-                            </button>
-                            <button
-                              onClick={() => onDelete(position.id)}
-                              className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                            >
-                              Löschen
-                            </button>
-                          </td>
-                        </tr>
-                        {expanded && (
-                          <tr>
-                            <td colSpan={7} className="p-0">
-                              <TransactionDetails
-                                transactions={positionTransactions}
-                                onDelete={handleDeleteTransaction}
-                                deletingId={deleteTransaction.isPending ? deletingId : null}
-                              />
+                              <button
+                                onClick={() => onEdit(position)}
+                                className="mr-3 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                              >
+                                Bearbeiten
+                              </button>
+                              <button
+                                onClick={() => onDelete(position.id)}
+                                className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                              >
+                                Löschen
+                              </button>
                             </td>
                           </tr>
-                        )}
-                      </Fragment>
-                    )
-                  }
-                )}
-              </tbody>
-            </table>
+                          {expanded && (
+                            <tr>
+                              <td colSpan={7} className="p-0">
+                                <TransactionDetails
+                                  transactions={positionTransactions}
+                                  onDelete={handleDeleteTransaction}
+                                  deletingId={deleteTransaction.isPending ? deletingId : null}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    }
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         )
       })}

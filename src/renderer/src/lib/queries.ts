@@ -1,4 +1,9 @@
 import type { DisplayClass } from '@shared/displayClass'
+import type {
+  BenchmarkUniverse,
+  CustomBenchmarkModelUpdate,
+  NewCustomBenchmarkModel
+} from '@shared/benchmarkCalc'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import type {
@@ -6,7 +11,9 @@ import type {
   BudgetItemUpdate,
   NewBudgetItem,
   NewPosition,
-  PositionUpdate
+  NewSavingsPlan,
+  PositionUpdate,
+  SavingsPlanUpdate
 } from '@shared/types'
 
 export function usePositions() {
@@ -127,7 +134,13 @@ function useBudgetMutation<TInput>(fn: (input: TInput) => Promise<unknown>) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: fn,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['budget'] })
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['budget'] })
+      // Anlegen und Ändern buchen sofort auf das zugeordnete Konto - der Kontostand hat sich
+      // dadurch geändert.
+      queryClient.invalidateQueries({ queryKey: ['budgetBookings'] })
+      queryClient.invalidateQueries({ queryKey: ['positions'] })
+    }
   })
 }
 
@@ -141,6 +154,66 @@ export function useUpdateBudgetItem() {
 
 export function useDeleteBudgetItem() {
   return useBudgetMutation((id: number) => api.budget.delete(id))
+}
+
+export function useBudgetBookings() {
+  return useQuery({ queryKey: ['budgetBookings'], queryFn: () => api.budget.listBookings() })
+}
+
+/**
+ * Buchungen verändern Kontostände - deshalb müssen danach auch Positionen, Kurse und der Verlauf
+ * neu geladen werden, nicht nur die Budgetliste.
+ */
+function useBookingMutation<TInput>(fn: (input: TInput) => Promise<unknown>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['budget'] })
+      queryClient.invalidateQueries({ queryKey: ['budgetBookings'] })
+      queryClient.invalidateQueries({ queryKey: ['positions'] })
+    }
+  })
+}
+
+export function useRunBudgetBookings() {
+  return useBookingMutation(() => api.budget.runBookings())
+}
+
+export function useUndoBudgetBookingMonth() {
+  return useBookingMutation((month: string) => api.budget.undoBookingMonth(month))
+}
+
+export function useSavingsPlans() {
+  return useQuery({ queryKey: ['savingsPlans'], queryFn: () => api.savingsPlans.list() })
+}
+
+/**
+ * Jede Sparplan-Änderung kann Buchungen anlegen - deshalb werden auch Positionen und der Verlauf
+ * neu geladen, nicht nur die Planliste.
+ */
+function useSavingsPlanMutation<TInput>(fn: (input: TInput) => Promise<unknown>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['savingsPlans'] })
+      queryClient.invalidateQueries({ queryKey: ['positions'] })
+      queryClient.invalidateQueries({ queryKey: ['transactions'] })
+    }
+  })
+}
+
+export function useCreateSavingsPlan() {
+  return useSavingsPlanMutation((input: NewSavingsPlan) => api.savingsPlans.create(input))
+}
+
+export function useUpdateSavingsPlan() {
+  return useSavingsPlanMutation((input: SavingsPlanUpdate) => api.savingsPlans.update(input))
+}
+
+export function useDeleteSavingsPlan() {
+  return useSavingsPlanMutation((id: number) => api.savingsPlans.delete(id))
 }
 
 export function useResetSnapshots() {
@@ -188,6 +261,60 @@ export function useImportCsv() {
       queryClient.invalidateQueries({ queryKey: ['snapshots'] })
     }
   })
+}
+
+/**
+ * Die gespeicherten Vergleichsreihen. Lädt bewusst nichts aus dem Netz nach - das übernimmt
+ * usePrepareAnalysis, damit das Öffnen der Seite nicht auf einen Abruf wartet.
+ */
+export function useBenchmarks(universe: BenchmarkUniverse, fromDate: string) {
+  return useQuery({
+    queryKey: ['benchmarks', universe, fromDate],
+    queryFn: () => api.analyse.benchmarks(universe, fromDate)
+  })
+}
+
+export function usePrepareAnalysis() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ universe, fromDate }: { universe: BenchmarkUniverse; fromDate: string }) =>
+      api.analyse.prepare(universe, fromDate),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['benchmarks'] })
+      // Der Abruf verlängert nebenbei die eigenen Kursreihen.
+      queryClient.invalidateQueries({ queryKey: ['historical'] })
+      // ... und holt die Sektor-/Länderaufteilung des Vergleichsindex, die der
+      // Zusammensetzungs-Vergleich für die Modellseite braucht.
+      queryClient.invalidateQueries({ queryKey: ['etfComposition'] })
+    }
+  })
+}
+
+/** Die selbst angelegten Vergleichsmodelle. Die fest eingebauten stehen im Code (BENCHMARK_MODELS). */
+export function useCustomModels() {
+  return useQuery({ queryKey: ['customModels'], queryFn: () => api.analyse.listModels() })
+}
+
+function useCustomModelMutation<TInput, TResult>(fn: (input: TInput) => Promise<TResult>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['customModels'] })
+  })
+}
+
+export function useCreateCustomModel() {
+  return useCustomModelMutation((input: NewCustomBenchmarkModel) => api.analyse.createModel(input))
+}
+
+export function useUpdateCustomModel() {
+  return useCustomModelMutation((input: CustomBenchmarkModelUpdate) =>
+    api.analyse.updateModel(input)
+  )
+}
+
+export function useDeleteCustomModel() {
+  return useCustomModelMutation((id: number) => api.analyse.deleteModel(id))
 }
 
 export function useRefreshPrices() {

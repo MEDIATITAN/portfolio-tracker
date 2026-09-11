@@ -96,6 +96,34 @@ export async function getHistoricalPrices(
 }
 
 /**
+ * Tageskurse INKLUSIVE wiederangelegter Ausschüttungen (Total Return), für die Vergleichsmaßstäbe
+ * des Analyse-Bereichs.
+ *
+ * Bewusst getrennt von getHistoricalPrices(): dort ist der reine Kurs richtig, weil er mit der
+ * Stückzahl im Depot multipliziert wird und Dividenden dort als eigene Buchung auftauchen. Für
+ * einen Vergleichsmaßstab dagegen wäre der reine Kurs grob falsch - nachgemessen steht AGG von
+ * 2020-01-02 bis heute beim Kurs bei -14,6 %, ausschüttungsbereinigt bei +4,0 %. Ein 60/40-Modell
+ * mit reinen Kursen würde seinen Anleihenteil also um rund 19 Prozentpunkte zu schlecht ausweisen.
+ *
+ * Aus demselben Grund ist ^GSPC als S&P-500-Reihe ungeeignet: der Index enthält keine Dividenden,
+ * dort ist adjclose identisch mit close. Für den S&P 500 wird deshalb SPY verwendet.
+ */
+export async function getAdjustedHistory(
+  identifier: string,
+  fromDate: string
+): Promise<HistoricalPricePoint[]> {
+  const result = await yahooFinance.chart(identifier, { period1: fromDate, interval: '1d' })
+  const currency = result.meta.currency
+  const out: HistoricalPricePoint[] = []
+  for (const q of result.quotes) {
+    const price = typeof q.adjclose === 'number' ? q.adjclose : q.close
+    if (typeof price !== 'number') continue
+    out.push({ date: q.date.toISOString().slice(0, 10), price, currency })
+  }
+  return out
+}
+
+/**
  * Stundenkurse ab `fromMs`.
  *
  * Yahoo liefert Intraday-Punkte NUR während der Börsenzeiten - nachts und am Wochenende gibt es

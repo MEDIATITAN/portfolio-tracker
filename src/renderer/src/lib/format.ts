@@ -3,6 +3,7 @@ import type { DisplayClass } from '@shared/displayClass'
 
 const eurFormatter = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
 const numberFormatter = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 4 })
+const shareFormatter = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 })
 
 export function formatEur(value: number | null | undefined): string {
   if (value === null || value === undefined) return '–'
@@ -34,6 +35,17 @@ const percentFormatter = new Intl.NumberFormat('de-DE', {
 export function formatPercent(value: number | null | undefined): string {
   if (value === null || value === undefined) return '–'
   return `${percentFormatter.format(value)} %`
+}
+
+/**
+ * Ein Anteil (0..1) als Prozentangabe OHNE Vorzeichen - für Aufteilungen.
+ *
+ * Nicht formatPercent nehmen: das setzt bewusst immer ein Vorzeichen (für Renditen und
+ * Abweichungen richtig), bei "Aktien: +72,4 %" wäre es schlicht falsch.
+ */
+export function formatShare(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '–'
+  return `${shareFormatter.format(value * 100)} %`
 }
 
 export function formatDateTime(iso: string | null | undefined): string {

@@ -44,6 +44,27 @@ export function listAllIntradayPrices(): IntradayPriceEntry[] {
   }))
 }
 
+/**
+ * Stundenkurs zu einem Zeitpunkt: die letzte Kerze an oder vor `ts`, aber nicht älter als
+ * `notBefore`. Die Untergrenze ist wichtig - ohne sie käme für eine Uhrzeit, zu der die Börse
+ * längst geschlossen war, die Kerze vom Vortag zurück und wäre schlechter als der Tagesschlusskurs.
+ */
+export function intradayPriceAt(
+  identifier: string,
+  ts: string,
+  notBefore: string
+): { ts: string; price: number; currency: string } | null {
+  const row = getDb()
+    .prepare(
+      `SELECT ts, price, currency FROM intraday_prices
+       WHERE identifier = ? AND ts <= ? AND ts >= ?
+       ORDER BY ts DESC LIMIT 1`
+    )
+    .get(identifier, ts, notBefore) as unknown as
+    { ts: string; price: number; currency: string } | undefined
+  return row ?? null
+}
+
 /** Jüngster gespeicherter Zeitpunkt einer Reihe, oder null. */
 export function latestIntradayTs(identifier: string): string | null {
   const row = getDb()

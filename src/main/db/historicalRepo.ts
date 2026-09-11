@@ -109,6 +109,33 @@ export function latestPriceBefore(
   return row ?? null
 }
 
+/**
+ * Kurs an diesem Tag, oder der letzte davor. Für Sparplan-Ausführungen: an einem Wochenende oder
+ * Feiertag wird nicht gehandelt, der Kurs des vorherigen Handelstages ist dann der richtige.
+ */
+export function priceOnOrBefore(
+  identifier: string,
+  date: string
+): { date: string; price: number; currency: string } | null {
+  const row = getDb()
+    .prepare(
+      'SELECT date, price, currency FROM historical_prices WHERE identifier = ? AND date <= ? ORDER BY date DESC LIMIT 1'
+    )
+    .get(identifier, date) as unknown as
+    { date: string; price: number; currency: string } | undefined
+  return row ?? null
+}
+
+/** Wechselkurs an diesem Tag oder der letzte davor - Wechselkurse gibt es nur an Bankarbeitstagen. */
+export function fxRateOnOrBefore(base: string, quote: string, date: string): number | null {
+  const row = getDb()
+    .prepare(
+      'SELECT rate FROM historical_fx_rates WHERE base = ? AND quote = ? AND date <= ? ORDER BY date DESC LIMIT 1'
+    )
+    .get(base, quote, date) as unknown as { rate: number } | undefined
+  return row?.rate ?? null
+}
+
 export function listAllHistoricalPrices(): HistoricalPriceRow[] {
   const rows = getDb()
     .prepare(
@@ -135,6 +162,25 @@ export interface HistoricalFxRow {
   quote: string
   date: string
   rate: number
+}
+
+/**
+ * Wechselkursreihe eines Währungspaars ab einem Stichtag.
+ *
+ * Für Umrechnungen über viele Tage hinweg: fxRateOnOrBefore() einzeln je Tag aufzurufen wären bei
+ * einer sechsjährigen Reihe mehrere tausend Abfragen. Hier kommt die Reihe in einem Stück, der
+ * Aufrufer läuft sie mit einem Zeiger ab.
+ */
+export function listHistoricalFxRates(
+  base: string,
+  quote: string,
+  fromDate: string
+): { date: string; rate: number }[] {
+  return getDb()
+    .prepare(
+      'SELECT date, rate FROM historical_fx_rates WHERE base = ? AND quote = ? AND date >= ? ORDER BY date'
+    )
+    .all(base, quote, fromDate) as unknown as { date: string; rate: number }[]
 }
 
 export function listAllHistoricalFxRates(): HistoricalFxRow[] {

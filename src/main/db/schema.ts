@@ -101,6 +101,44 @@ CREATE TABLE IF NOT EXISTS budget_items (
   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+-- Tatsächlich auf ein Konto gebuchte Monatsraten eines Budgetpostens.
+-- UNIQUE über Posten und Monat ist die eigentliche Absicherung: derselbe Monat kann nicht zweimal
+-- abgebucht werden, auch nicht wenn der Kursabruf mehrfach am Tag läuft.
+CREATE TABLE IF NOT EXISTS budget_bookings (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  budget_item_id  INTEGER NOT NULL REFERENCES budget_items(id) ON DELETE CASCADE,
+  position_id     INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+  month           TEXT NOT NULL,
+  amount          REAL NOT NULL,
+  -- Gesetzt, wenn die Buchung zurückgenommen wurde. Die Zeile bleibt bewusst stehen: sie ist der
+  -- Beleg, dass dieser Monat schon behandelt wurde, und verhindert ein sofortiges Neubuchen.
+  reverted_at     TEXT,
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  UNIQUE (budget_item_id, month)
+);
+CREATE INDEX IF NOT EXISTS idx_budget_bookings_month ON budget_bookings(month);
+
+-- Sparpläne. Anders als ein Budgetposten hängt ein Sparplan an einer Position - er kauft ein
+-- bestimmtes Wertpapier, und aus jeder Ausführung wird eine Buchung im Ledger.
+-- execution_day ist auf 1 bis 28 begrenzt: den 29. bis 31. gibt es nicht in jedem Monat, und ein
+-- Plan, der im Februar ausfällt, wäre ein schwer zu findender Fehler.
+CREATE TABLE IF NOT EXISTS savings_plans (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  position_id    INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+  amount         REAL NOT NULL,
+  currency       TEXT NOT NULL DEFAULT 'EUR',
+  period         TEXT NOT NULL DEFAULT 'MONTHLY' CHECK (period IN ('MONTHLY','QUARTERLY','YEARLY')),
+  execution_day  INTEGER NOT NULL DEFAULT 1 CHECK (execution_day BETWEEN 1 AND 28),
+  execution_time TEXT,
+  start_date     TEXT NOT NULL,
+  end_date       TEXT,
+  active         INTEGER NOT NULL DEFAULT 1,
+  notes          TEXT,
+  created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_savings_plans_position_id ON savings_plans(position_id);
+
 CREATE TABLE IF NOT EXISTS settings (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
@@ -130,6 +168,35 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 CREATE INDEX IF NOT EXISTS idx_transactions_position_id ON transactions(position_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
+
+-- Kursreihen der Vergleichsmaßstäbe (S&P 500, Anleihen, Gold, Rohstoffe) für den Analyse-Bereich.
+-- Bewusst eine eigene Tabelle statt historical_prices mitzubenutzen: der Kanal historical:list
+-- schickt jene Tabelle bei jedem Dashboard-Aufruf vollständig an den Renderer, und dort haben
+-- Reihen, die zu keiner Position gehören, nichts zu suchen.
+-- Die Kurse sind ausschüttungsbereinigt (Yahoo adjclose), also Total Return. Ohne das wäre der
+-- Anleihenteil jedes Modells grob falsch: AGG steht seit 2020 beim reinen Kurs bei -14,6 %,
+-- mit wiederangelegten Ausschüttungen bei +4,0 %.
+CREATE TABLE IF NOT EXISTS benchmark_prices (
+  identifier      TEXT NOT NULL,
+  date            TEXT NOT NULL,
+  price           REAL NOT NULL,
+  currency        TEXT NOT NULL,
+  PRIMARY KEY (identifier, date)
+);
+CREATE INDEX IF NOT EXISTS idx_benchmark_prices_identifier ON benchmark_prices(identifier);
+
+-- Selbst angelegte Vergleichsmodelle des Analyse-Bereichs: ein Name und die Gewichte je Baustein.
+-- Die Gewichte stehen als JSON in einer Spalte statt in eigenen Zeilen je Baustein. Sie werden
+-- immer nur vollständig gelesen und vollständig ersetzt, nie einzeln abgefragt oder summiert -
+-- eine zweite Tabelle mit Fremdschlüssel brächte hier nur Aufwand. Welche Schlüssel gültig sind,
+-- gibt der Typ BenchmarkComponent vor; geschrieben wird ausschließlich über customModelRepo.
+CREATE TABLE IF NOT EXISTS custom_benchmark_models (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,
+  weights    TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
 `
 
 export const SEED_SETTINGS: Record<string, string> = {

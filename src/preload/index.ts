@@ -1,14 +1,22 @@
 import type { DisplayClass } from '../shared/displayClass'
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  BenchmarkUniverse,
+  CustomBenchmarkModelUpdate,
+  NewCustomBenchmarkModel
+} from '../shared/benchmarkCalc'
+import type {
+  AnalysisPrepareProgress,
   BrokerFormat,
   BudgetItemUpdate,
   CsvImportProgressEvent,
   NewBudgetItem,
   NewPosition,
+  NewSavingsPlan,
   PortfolioApi,
   PositionUpdate,
   ResetProgressEvent,
+  SavingsPlanUpdate,
   Settings
 } from '../shared/types'
 
@@ -57,7 +65,17 @@ const api: PortfolioApi = {
     list: () => ipcRenderer.invoke('budget:list'),
     create: (input: NewBudgetItem) => ipcRenderer.invoke('budget:create', input),
     update: (input: BudgetItemUpdate) => ipcRenderer.invoke('budget:update', input),
-    delete: (id: number) => ipcRenderer.invoke('budget:delete', id)
+    delete: (id: number) => ipcRenderer.invoke('budget:delete', id),
+    listBookings: () => ipcRenderer.invoke('budget:listBookings'),
+    runBookings: () => ipcRenderer.invoke('budget:runBookings'),
+    undoBookingMonth: (month: string) => ipcRenderer.invoke('budget:undoBookingMonth', month)
+  },
+  savingsPlans: {
+    list: () => ipcRenderer.invoke('savingsPlans:list'),
+    create: (input: NewSavingsPlan) => ipcRenderer.invoke('savingsPlans:create', input),
+    update: (input: SavingsPlanUpdate) => ipcRenderer.invoke('savingsPlans:update', input),
+    delete: (id: number) => ipcRenderer.invoke('savingsPlans:delete', id),
+    run: () => ipcRenderer.invoke('savingsPlans:run')
   },
   transactions: {
     list: () => ipcRenderer.invoke('transactions:list'),
@@ -69,6 +87,23 @@ const api: PortfolioApi = {
       ipcRenderer.on('transactions:import-progress', listener)
       return () => ipcRenderer.removeListener('transactions:import-progress', listener)
     }
+  },
+  analyse: {
+    benchmarks: (universe: BenchmarkUniverse, fromDate: string) =>
+      ipcRenderer.invoke('analyse:benchmarks', universe, fromDate),
+    prepare: (universe: BenchmarkUniverse, fromDate: string) =>
+      ipcRenderer.invoke('analyse:prepare', universe, fromDate),
+    onPrepareProgress: (callback: (event: AnalysisPrepareProgress) => void) => {
+      const listener = (_: unknown, payload: AnalysisPrepareProgress) => callback(payload)
+      ipcRenderer.on('analyse:prepare-progress', listener)
+      return () => ipcRenderer.removeListener('analyse:prepare-progress', listener)
+    },
+    listModels: () => ipcRenderer.invoke('analyse:models:list'),
+    createModel: (input: NewCustomBenchmarkModel) =>
+      ipcRenderer.invoke('analyse:models:create', input),
+    updateModel: (input: CustomBenchmarkModelUpdate) =>
+      ipcRenderer.invoke('analyse:models:update', input),
+    deleteModel: (id: number) => ipcRenderer.invoke('analyse:models:delete', id)
   }
 }
 

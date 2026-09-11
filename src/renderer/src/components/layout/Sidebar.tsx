@@ -24,14 +24,35 @@ function BudgetIcon(): React.JSX.Element {
   )
 }
 
+/** Sparschwein - regelmäßig Zurückgelegtes. */
+function SavingsPlanIcon(): React.JSX.Element {
+  return (
+    <svg
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 12a7 5 0 0 1 7-5h4a7 5 0 0 1 7 5v3h-2l-1 3h-3l-1-2h-4l-1 2H6l-1-3H3z" />
+      <path d="M10 7V5h4v2" />
+      <circle cx="16.5" cy="11.5" r="0.6" fill="currentColor" />
+    </svg>
+  )
+}
+
 interface SidebarProps {
   page: Page
   classFilter: ClassFilter
   onNavigateDashboard: (filter: ClassFilter) => void
   onNavigatePositions: () => void
   onNavigatePnl: () => void
+  onNavigateAnalyse: () => void
   onNavigateTransactions: () => void
   onNavigateBudget: () => void
+  onNavigateSavingsPlans: () => void
 }
 
 const ASSET_CLASSES = DISPLAY_CLASS_ORDER
@@ -101,6 +122,26 @@ function HistoryIcon(): React.JSX.Element {
   )
 }
 
+/** Zwei Linien nebeneinander - der eigene Verlauf gegen einen Vergleichsmaßstab. */
+function AnalyseIcon(): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4 shrink-0"
+    >
+      <path d="M3 16V4" />
+      <path d="M3 16h14" />
+      <path d="M5 13l3.5-4 2.5 2 4.5-6" />
+      <path d="M5 15.5l3.5-2 2.5 1 4.5-3" strokeDasharray="2.5 2" />
+    </svg>
+  )
+}
+
 function ChevronIcon({ expanded }: { expanded: boolean }): React.JSX.Element {
   return (
     <svg
@@ -123,8 +164,10 @@ export function Sidebar({
   onNavigateDashboard,
   onNavigatePositions,
   onNavigatePnl,
+  onNavigateAnalyse,
   onNavigateTransactions,
-  onNavigateBudget
+  onNavigateBudget,
+  onNavigateSavingsPlans
 }: SidebarProps): React.JSX.Element {
   const [assetClassesOpen, setAssetClassesOpen] = useState(true)
   const { theme, toggleTheme } = useTheme()
@@ -195,6 +238,19 @@ export function Sidebar({
 
         <button
           type="button"
+          onClick={onNavigateSavingsPlans}
+          className={`mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
+            page === 'savingsPlans'
+              ? 'bg-blue-500/15 text-blue-400'
+              : 'text-slate-300 hover:bg-slate-800'
+          }`}
+        >
+          <SavingsPlanIcon />
+          <span>Sparpläne</span>
+        </button>
+
+        <button
+          type="button"
           onClick={onNavigateBudget}
           className={`mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
             page === 'budget' ? 'bg-blue-500/15 text-blue-400' : 'text-slate-300 hover:bg-slate-800'
@@ -213,6 +269,19 @@ export function Sidebar({
         >
           <PnlIcon />
           <span>Gewinn &amp; Verlust</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={onNavigateAnalyse}
+          className={`mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
+            page === 'analyse'
+              ? 'bg-blue-500/15 text-blue-400'
+              : 'text-slate-300 hover:bg-slate-800'
+          }`}
+        >
+          <AnalyseIcon />
+          <span>Analyse</span>
         </button>
 
         <button

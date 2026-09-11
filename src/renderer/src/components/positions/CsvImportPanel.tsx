@@ -182,6 +182,13 @@ export function CsvImportPanel(): React.JSX.Element {
                     : `${result.duplicatesSkipped} Buchungen standen bereits so in der Datenbank und wurden übersprungen.`}
                 </span>
               )}
+              {result.planBookingsReplaced > 0 && (
+                <span className="block text-slate-500 dark:text-slate-400">
+                  {result.planBookingsReplaced === 1
+                    ? '1 vorgemerkte Sparplan-Buchung wurde durch die echte Abrechnung ersetzt.'
+                    : `${result.planBookingsReplaced} vorgemerkte Sparplan-Buchungen wurden durch die echten Abrechnungen ersetzt.`}
+                </span>
+              )}
             </p>
           )}
 

@@ -144,6 +144,7 @@ export async function importCsv(
   const existingByIdentifier = new Map(existingPositions.map((p) => [p.identifier, p] as const))
   let transactionsImported = 0
   let duplicatesSkipped = 0
+  let planBookingsReplaced = 0
   const affectedPositionIds: number[] = []
 
   for (const [identifier, group] of groups) {
@@ -200,6 +201,16 @@ export async function importCsv(
         duplicatesSkipped++
         continue
       }
+      // Die echte Abrechnung ersetzt die Vormerkung des Sparplans für denselben Monat, statt
+      // sie zu verdoppeln. Der Sparplan bucht mit dem Tageskurs zum eingestellten Termin; der
+      // Broker führt ein paar Tage daneben und zu einem anderen Kurs aus, weshalb die
+      // Doppelungserkennung oben hier nicht greifen kann.
+      if (
+        row.type === 'BUY' &&
+        transactionsRepo.deletePlanBookingInMonth(position.id, row.date.slice(0, 7))
+      ) {
+        planBookingsReplaced++
+      }
       transactionsRepo.createTransaction({
         positionId: position.id,
         type: row.type,
@@ -238,6 +249,7 @@ export async function importCsv(
     transactionsImported,
     positionsAffected: toRefresh.length,
     duplicatesSkipped,
+    planBookingsReplaced,
     unresolved
   }
 }
