@@ -53,6 +53,30 @@ export interface Position {
 export type NewPosition = Omit<Position, 'id' | 'createdAt' | 'updatedAt' | 'hasTransactions'>
 export type PositionUpdate = Partial<NewPosition> & { id: number }
 
+/** Woher eine Änderung des Kontostands kam. */
+export type CashBalanceSource = 'OPENING' | 'MANUAL' | 'BUDGET' | 'BUDGET_UNDO'
+
+/**
+ * Ein Eintrag im Verlauf eines Kontostands: der Stand NACH einer Änderung.
+ *
+ * Guthaben haben keinen Kurs, den man nachladen könnte - ihr Verlauf lässt sich nur mitschreiben,
+ * während er entsteht. Deshalb hinterlassen beide Stellen, die einen Kontostand ändern (das
+ * Positionsformular und die Budget-Buchungen), hier eine Zeile. Zwischen zwei Einträgen gilt der
+ * ältere Stand unverändert fort.
+ */
+export interface CashBalanceEntry {
+  id: number
+  positionId: number
+  /** Zeitpunkt der Änderung, ISO mit Uhrzeit. */
+  recordedAt: string
+  /** Kontostand nach der Änderung, in der Währung des Kontos. */
+  balance: number
+  currency: string
+  source: CashBalanceSource
+  /** Herkunft im Klartext, etwa Budgetposten und Monat - null bei Änderungen von Hand. */
+  note: string | null
+}
+
 export interface PriceCacheEntry {
   identifier: string
   assetClass: AssetClass
@@ -398,6 +422,10 @@ export interface PortfolioApi {
   }
   etfComposition: {
     list(): Promise<EtfCompositionEntry[]>
+  }
+  cashHistory: {
+    /** Der Verlauf aller Kontostände, chronologisch - je Konto gruppiert wird im Renderer. */
+    list(): Promise<CashBalanceEntry[]>
   }
   budget: {
     list(): Promise<BudgetItem[]>

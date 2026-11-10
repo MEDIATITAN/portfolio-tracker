@@ -29,6 +29,8 @@ export function useCreatePosition() {
       // ensureHistoricalData ist beim Anlegen mitgelaufen (deshalb dauert es länger) - neue
       // historische Daten stehen jetzt bereit.
       queryClient.invalidateQueries({ queryKey: ['historical'] })
+      // Ein neues Guthaben beginnt seinen Kontostands-Verlauf mit dem Anfangsstand.
+      queryClient.invalidateQueries({ queryKey: ['cashHistory'] })
     }
   })
 }
@@ -40,6 +42,8 @@ export function useUpdatePosition() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['positions'] })
       queryClient.invalidateQueries({ queryKey: ['historical'] })
+      // Ein geänderter Kontostand ist ein neuer Eintrag im Verlauf des Kontos.
+      queryClient.invalidateQueries({ queryKey: ['cashHistory'] })
     }
   })
 }
@@ -48,7 +52,11 @@ export function useDeletePosition() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => api.positions.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['positions'] })
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['positions'] })
+      // Der Verlauf eines gelöschten Kontos geht mit (Löschweitergabe in der Datenbank).
+      queryClient.invalidateQueries({ queryKey: ['cashHistory'] })
+    }
   })
 }
 
@@ -63,6 +71,7 @@ export function useDeleteAllPositions() {
       queryClient.invalidateQueries({ queryKey: ['historical'] })
       queryClient.invalidateQueries({ queryKey: ['priceCache'] })
       queryClient.invalidateQueries({ queryKey: ['fxRates'] })
+      queryClient.invalidateQueries({ queryKey: ['cashHistory'] })
     }
   })
 }
@@ -125,6 +134,15 @@ export function useDeleteTransaction() {
   })
 }
 
+/**
+ * Der Verlauf aller Kontostände - je Konto gruppiert wird in der Positionsliste. Eine Abfrage für
+ * alle statt einer je Konto: die Daten sind klein (eine Zeile je Änderung), und der Verlauf soll
+ * beim Aufklappen sofort da sein, ohne erst zu laden.
+ */
+export function useCashBalanceHistory() {
+  return useQuery({ queryKey: ['cashHistory'], queryFn: () => api.cashHistory.list() })
+}
+
 export function useBudgetItems() {
   return useQuery({ queryKey: ['budget'], queryFn: () => api.budget.list() })
 }
@@ -140,6 +158,7 @@ function useBudgetMutation<TInput>(fn: (input: TInput) => Promise<unknown>) {
       // dadurch geändert.
       queryClient.invalidateQueries({ queryKey: ['budgetBookings'] })
       queryClient.invalidateQueries({ queryKey: ['positions'] })
+      queryClient.invalidateQueries({ queryKey: ['cashHistory'] })
     }
   })
 }
@@ -172,6 +191,7 @@ function useBookingMutation<TInput>(fn: (input: TInput) => Promise<unknown>) {
       queryClient.invalidateQueries({ queryKey: ['budget'] })
       queryClient.invalidateQueries({ queryKey: ['budgetBookings'] })
       queryClient.invalidateQueries({ queryKey: ['positions'] })
+      queryClient.invalidateQueries({ queryKey: ['cashHistory'] })
     }
   })
 }
@@ -328,6 +348,8 @@ export function useRefreshPrices() {
       // refreshAll pflegt nebenbei Fondszusammensetzung + Anlageklassen-Einstufung mit.
       queryClient.invalidateQueries({ queryKey: ['etfComposition'] })
       queryClient.invalidateQueries({ queryKey: ['positions'] })
+      // ... und bucht fällige Budget-Monate auf die Konten - deren Verlauf wächst dabei.
+      queryClient.invalidateQueries({ queryKey: ['cashHistory'] })
     }
   })
 }

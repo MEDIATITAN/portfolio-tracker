@@ -9,6 +9,7 @@ import {
   mergeDuplicatePositions,
   migrateExistingPositionsToTransactions
 } from './services/ledgerService'
+import { backfillOpeningBalances } from './services/cashBalanceService'
 
 function createWindow(): void {
   // Create the browser window.
@@ -72,6 +73,13 @@ app.whenReady().then(() => {
         `${dedupe.merged} doppelte Position(en) zusammengeführt:`,
         dedupe.removed.join(', ')
       )
+  }
+  // Guthaben, die es vor dem Kontostands-Verlauf schon gab, bekommen ihren aktuellen Stand als
+  // ersten Eintrag - ohne den begänne ihr Diagramm erst mit der nächsten Änderung.
+  {
+    const added = backfillOpeningBalances()
+    if (added > 0)
+      console.log(`Kontostands-Verlauf: Anfangsstand für ${added} Konto/Konten nachgetragen`)
   }
   registerIpcHandlers()
 

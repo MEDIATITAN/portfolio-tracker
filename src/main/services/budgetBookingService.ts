@@ -2,9 +2,15 @@ import * as budgetRepo from '../db/budgetRepo'
 import * as budgetBookingRepo from '../db/budgetBookingRepo'
 import * as positionsRepo from '../db/positionsRepo'
 import * as fxRepo from '../db/fxRepo'
-import { monthlyAmount } from '../../shared/budget'
+import * as cashBalanceService from './cashBalanceService'
+import { monthLabel, monthlyAmount } from '../../shared/budget'
 import { findFxRate } from '../../shared/valueCalc'
-import type { BudgetBookingMonth, BudgetItem, Position } from '../../shared/types'
+import type {
+  BudgetBookingMonth,
+  BudgetItem,
+  CashBalanceSource,
+  Position
+} from '../../shared/types'
 
 function currentMonth(): string {
   return new Date().toISOString().slice(0, 7)
@@ -44,9 +50,19 @@ function signedAmount(item: BudgetItem, account: Position): number | null {
   return item.type === 'INCOME' ? value : -value
 }
 
-function applyToAccount(position: Position, delta: number): void {
+/**
+ * Verändert den Kontostand und hält die Änderung im Verlauf des Kontos fest - mit Posten und Monat
+ * als Vermerk, damit sich im Diagramm später nachvollziehen lässt, woher ein Sprung kam.
+ */
+function applyToAccount(
+  position: Position,
+  delta: number,
+  source: CashBalanceSource,
+  note: string
+): void {
   const before = position.manualValue ?? 0
-  positionsRepo.updatePosition({ id: position.id, manualValue: before + delta })
+  const after = positionsRepo.updatePosition({ id: position.id, manualValue: before + delta })
+  cashBalanceService.recordBalanceChange(position, after, source, note)
 }
 
 /**
@@ -81,7 +97,12 @@ export function runDueBookings(): number {
       })
       // Den Kontostand frisch lesen: mehrere Posten können auf dasselbe Konto buchen, und die
       // Kopie aus der Map wäre nach der ersten Buchung veraltet.
-      applyToAccount(positionsRepo.getPositionById(account.id), amount)
+      applyToAccount(
+        positionsRepo.getPositionById(account.id),
+        amount,
+        'BUDGET',
+        `${item.name}, ${monthLabel(month)}`
+      )
       booked++
     }
   }
@@ -93,10 +114,14 @@ export function runDueBookings(): number {
 /** Nimmt alle Buchungen eines Monats zurück und stellt die Kontostände wieder her. */
 export function undoMonth(month: string): void {
   const bookings = budgetBookingRepo.listBookingsInMonth(month)
+  const items = new Map(budgetRepo.listBudgetItems().map((i) => [i.id, i]))
   for (const booking of bookings) {
     const account = positionsRepo.listPositions().find((p) => p.id === booking.positionId)
     if (!account) continue
-    applyToAccount(account, -booking.amount)
+    // Der Posten kann inzwischen gelöscht sein - seine Buchungen gehen dann zwar mit (Löschweitergabe),
+    // aber auf eine Zeitlücke zwischen Lesen und Löschen soll der Vermerk nicht mit einem Fehler reagieren.
+    const itemName = items.get(booking.budgetItemId)?.name ?? 'Budgetposten'
+    applyToAccount(account, -booking.amount, 'BUDGET_UNDO', `${itemName}, ${monthLabel(month)}`)
   }
   budgetBookingRepo.markRevertedInMonth(month)
   if (bookings.length > 0) {

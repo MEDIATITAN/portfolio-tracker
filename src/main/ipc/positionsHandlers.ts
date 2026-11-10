@@ -1,6 +1,8 @@
 import { ipcMain } from 'electron'
 import * as positionsRepo from '../db/positionsRepo'
 import * as snapshotsRepo from '../db/snapshotsRepo'
+import * as cashBalanceRepo from '../db/cashBalanceRepo'
+import * as cashBalanceService from '../services/cashBalanceService'
 import * as yahooService from '../services/yahooService'
 import * as coingeckoService from '../services/coingeckoService'
 import * as priceService from '../services/priceService'
@@ -17,15 +19,22 @@ import type {
 
 export function registerPositionsHandlers(): void {
   ipcMain.handle('positions:list', () => positionsRepo.listPositions())
+  // Der Kontostands-Verlauf gehört zu den Positionen: er wird in deren Liste aufgeklappt.
+  ipcMain.handle('cashHistory:list', () => cashBalanceRepo.listAll())
 
   ipcMain.handle('positions:create', async (_event, input: NewPosition) => {
     const position = positionsRepo.createPosition(input)
+    cashBalanceService.recordBalanceChange(null, position, 'MANUAL')
     await priceService.ensureHistoricalData(position)
     return position
   })
 
   ipcMain.handle('positions:update', async (_event, input: PositionUpdate) => {
+    // Den alten Stand VOR dem Schreiben lesen: nur so lässt sich erkennen, ob sich am Kontostand
+    // eines Guthabens etwas geändert hat oder nur Name oder Notiz.
+    const before = positionsRepo.getPositionById(input.id)
     const position = positionsRepo.updatePosition(input)
+    cashBalanceService.recordBalanceChange(before, position, 'MANUAL')
     await priceService.ensureHistoricalData(position)
     return position
   })

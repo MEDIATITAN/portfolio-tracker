@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { BudgetItem, BudgetItemType, FxRate, NewBudgetItem, Position } from '@shared/types'
-import { PERIOD_LABELS, monthlyAmount } from '@shared/budget'
+import { PERIOD_LABELS, monthLabel, monthlyAmount } from '@shared/budget'
 import { findFxRate } from '@shared/valueCalc'
 import { BudgetForm } from '../components/budget/BudgetForm'
 import { BreakdownDonut } from '../components/dashboard/BreakdownDonut'
@@ -256,13 +256,6 @@ function accountFlows(
     byId.set(account.id, entry)
   }
   return [...byId.values()].sort((a, b) => a.account.name.localeCompare(b.account.name))
-}
-
-/** 'YYYY-MM' als "September 2026". */
-function monthLabel(month: string): string {
-  const [y, m] = month.split('-').map(Number)
-  if (!Number.isFinite(y) || !Number.isFinite(m)) return month
-  return new Date(y, m - 1, 1).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })
 }
 
 export function BudgetPage(): React.JSX.Element {

@@ -61,6 +61,9 @@ const api: PortfolioApi = {
   etfComposition: {
     list: () => ipcRenderer.invoke('etfComposition:list')
   },
+  cashHistory: {
+    list: () => ipcRenderer.invoke('cashHistory:list')
+  },
   budget: {
     list: () => ipcRenderer.invoke('budget:list'),
     create: (input: NewBudgetItem) => ipcRenderer.invoke('budget:create', input),

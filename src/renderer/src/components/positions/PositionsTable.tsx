@@ -1,5 +1,11 @@
 import { Fragment, useState } from 'react'
-import type { FxRate, PriceCacheEntry, Position, TransactionWithPosition } from '@shared/types'
+import type {
+  CashBalanceEntry,
+  FxRate,
+  PriceCacheEntry,
+  Position,
+  TransactionWithPosition
+} from '@shared/types'
 import { computeAllPositionValues, findFxRate } from '@shared/valueCalc'
 import { isBondIdentifier } from '@shared/bonds'
 import { displayClass, DISPLAY_CLASS_ORDER } from '@shared/displayClass'
@@ -12,7 +18,8 @@ import {
   formatMoney,
   formatNumber
 } from '../../lib/format'
-import { useDeleteTransaction, useTransactions } from '../../lib/queries'
+import { useCashBalanceHistory, useDeleteTransaction, useTransactions } from '../../lib/queries'
+import { CashBalanceHistory } from './CashBalanceHistory'
 
 interface PositionsTableProps {
   positions: Position[]
@@ -173,6 +180,7 @@ export function PositionsTable({
   onDelete
 }: PositionsTableProps): React.JSX.Element {
   const { data: transactions } = useTransactions()
+  const { data: cashHistory } = useCashBalanceHistory()
   const deleteTransaction = useDeleteTransaction()
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
@@ -214,6 +222,14 @@ export function PositionsTable({
     else byPosition.set(t.positionId, [t])
   }
   for (const list of byPosition.values()) list.sort((a, b) => a.date.localeCompare(b.date))
+
+  // Kontostands-Verlauf je Guthaben; die Einträge kommen bereits chronologisch.
+  const historyByPosition = new Map<number, CashBalanceEntry[]>()
+  for (const entry of cashHistory ?? []) {
+    const list = historyByPosition.get(entry.positionId)
+    if (list) list.push(entry)
+    else historyByPosition.set(entry.positionId, [entry])
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -263,7 +279,9 @@ export function PositionsTable({
                         ? findFxRate(fxRates, position.currency, 'EUR')
                         : null
                       const positionTransactions = byPosition.get(position.id) ?? []
-                      const expandable = positionTransactions.length > 0
+                      // Guthaben klappen ihren Kontostands-Verlauf auf, Wertpapiere ihre Buchungen.
+                      const isCash = position.assetClass === 'CASH_OTHER'
+                      const expandable = positionTransactions.length > 0 || isCash
                       const expanded = expandedId === position.id
                       const buyCount = positionTransactions.filter((t) => t.type === 'BUY').length
                       const isBond = isBondIdentifier(position.identifier)
@@ -275,6 +293,7 @@ export function PositionsTable({
                             onClick={() =>
                               expandable && setExpandedId(expanded ? null : position.id)
                             }
+                            title={isCash ? 'Verlauf des Kontostands anzeigen' : undefined}
                             className={`border-t border-slate-100 text-slate-900 dark:border-slate-800 dark:text-slate-100 ${
                               expandable
                                 ? 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50'
@@ -390,11 +409,18 @@ export function PositionsTable({
                           {expanded && (
                             <tr>
                               <td colSpan={7} className="p-0">
-                                <TransactionDetails
-                                  transactions={positionTransactions}
-                                  onDelete={handleDeleteTransaction}
-                                  deletingId={deleteTransaction.isPending ? deletingId : null}
-                                />
+                                {isCash ? (
+                                  <CashBalanceHistory
+                                    position={position}
+                                    entries={historyByPosition.get(position.id) ?? []}
+                                  />
+                                ) : (
+                                  <TransactionDetails
+                                    transactions={positionTransactions}
+                                    onDelete={handleDeleteTransaction}
+                                    deletingId={deleteTransaction.isPending ? deletingId : null}
+                                  />
+                                )}
                               </td>
                             </tr>
                           )}

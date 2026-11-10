@@ -23,3 +23,13 @@ export const PERIOD_ORDER: BudgetPeriod[] = ['MONTHLY', 'QUARTERLY', 'YEARLY']
 export function monthlyAmount(item: Pick<BudgetItem, 'amount' | 'period'>): number {
   return item.amount / PERIOD_MONTHS[item.period]
 }
+
+/**
+ * 'YYYY-MM' als "September 2026" - für die Buchungsliste und die Vermerke im Kontostands-Verlauf.
+ * Liegt hier statt im Renderer, weil auch der Hauptprozess den Vermerk schreibt.
+ */
+export function monthLabel(month: string): string {
+  const [y, m] = month.split('-').map(Number)
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return month
+  return new Date(y, m - 1, 1).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })
+}

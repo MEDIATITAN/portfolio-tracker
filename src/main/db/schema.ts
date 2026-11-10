@@ -197,6 +197,22 @@ CREATE TABLE IF NOT EXISTS custom_benchmark_models (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
+
+-- Verlauf der Kontostände von Guthaben (Cash & Sonstiges). Ein Konto hat keinen Kurs, den man
+-- nachladen könnte: sein Wert ist allein das, was eingetragen wurde - von Hand im Formular oder
+-- durch die Monatsbuchungen der Budgetposten. Jede Änderung hinterlässt hier eine Zeile mit dem
+-- Stand DANACH; der Verlauf entsteht also beim Schreiben, nicht beim Lesen. Zwischen zwei Zeilen
+-- gilt der ältere Stand unverändert fort - eine Treppe, keine Kurve.
+CREATE TABLE IF NOT EXISTS cash_balance_history (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  position_id  INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+  recorded_at  TEXT NOT NULL,
+  balance      REAL NOT NULL,
+  currency     TEXT NOT NULL,
+  source       TEXT NOT NULL CHECK (source IN ('OPENING','MANUAL','BUDGET','BUDGET_UNDO')),
+  note         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cash_balance_history_position_id ON cash_balance_history(position_id);
 `
 
 export const SEED_SETTINGS: Record<string, string> = {
