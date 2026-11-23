@@ -1,12 +1,12 @@
-import { ipcMain } from 'electron'
+import { handle } from './handle'
 import * as snapshotsRepo from '../db/snapshotsRepo'
 import * as priceService from '../services/priceService'
 import type { DisplayClass } from '../../shared/displayClass'
 
 export function registerSnapshotsHandlers(): void {
-  ipcMain.handle('snapshots:list', () => snapshotsRepo.listSnapshots())
+  handle('snapshots:list', () => snapshotsRepo.listSnapshots())
 
-  ipcMain.handle('snapshots:reset', (event) =>
+  handle('snapshots:reset', (event) =>
     priceService.resetAndRecalculate((progress) => {
       event.sender.send('snapshots:reset-progress', progress)
     })
@@ -14,7 +14,7 @@ export function registerSnapshotsHandlers(): void {
 
   // Gleicher Fortschrittskanal wie beim vollständigen Zurücksetzen - es kann ohnehin immer nur
   // eines von beiden gleichzeitig laufen.
-  ipcMain.handle('snapshots:resetClass', (event, cls: DisplayClass) =>
+  handle('snapshots:resetClass', (event, cls: DisplayClass) =>
     priceService.resetClass(cls, (progress) => {
       event.sender.send('snapshots:reset-progress', progress)
     })

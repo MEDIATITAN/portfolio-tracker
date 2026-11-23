@@ -64,6 +64,13 @@ const api: PortfolioApi = {
   cashHistory: {
     list: () => ipcRenderer.invoke('cashHistory:list')
   },
+  profiles: {
+    list: () => ipcRenderer.invoke('profiles:list'),
+    create: (name: string) => ipcRenderer.invoke('profiles:create', name),
+    rename: (id: string, name: string) => ipcRenderer.invoke('profiles:rename', id, name),
+    delete: (id: string) => ipcRenderer.invoke('profiles:delete', id),
+    switchTo: (id: string) => ipcRenderer.invoke('profiles:switch', id)
+  },
   budget: {
     list: () => ipcRenderer.invoke('budget:list'),
     create: (input: NewBudgetItem) => ipcRenderer.invoke('budget:create', input),

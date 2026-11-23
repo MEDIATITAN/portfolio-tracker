@@ -3,13 +3,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
-import { getDb } from './db'
 import { registerIpcHandlers } from './ipc'
-import {
-  mergeDuplicatePositions,
-  migrateExistingPositionsToTransactions
-} from './services/ledgerService'
-import { backfillOpeningBalances } from './services/cashBalanceService'
+import { prepareDatabase } from './services/databaseSetup'
 
 function createWindow(): void {
   // Create the browser window.
@@ -59,28 +54,8 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  // DB-Schema initialisieren, bevor IPC-Handler registriert werden, die darauf zugreifen.
-  getDb()
-  migrateExistingPositionsToTransactions()
-  // Derselbe Vermögenswert kann doppelt liegen: ein Wertpapier aus zwei Broker-Importen unter
-  // verschiedenen Börsenplätzen ('IWDA.L' gegen 'IWDA.AS'), oder ein Rohstoff, der zweimal von Hand
-  // angelegt wurde. Beim Start einmal zusammenführen - idempotent, ohne Doppelungen ein no-op.
-  // Läuft NACH der Ledger-Migration, damit auch frisch erzeugte Eröffnungsbuchungen erfasst sind.
-  {
-    const dedupe = mergeDuplicatePositions()
-    if (dedupe.merged > 0)
-      console.log(
-        `${dedupe.merged} doppelte Position(en) zusammengeführt:`,
-        dedupe.removed.join(', ')
-      )
-  }
-  // Guthaben, die es vor dem Kontostands-Verlauf schon gab, bekommen ihren aktuellen Stand als
-  // ersten Eintrag - ohne den begänne ihr Diagramm erst mit der nächsten Änderung.
-  {
-    const added = backfillOpeningBalances()
-    if (added > 0)
-      console.log(`Kontostands-Verlauf: Anfangsstand für ${added} Konto/Konten nachgetragen`)
-  }
+  // Datenbank des zuletzt offenen Profils öffnen und nachbessern, bevor IPC-Handler darauf zugreifen.
+  prepareDatabase()
   registerIpcHandlers()
 
   createWindow()

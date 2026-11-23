@@ -353,3 +353,41 @@ export function useRefreshPrices() {
     }
   })
 }
+
+export function useProfiles() {
+  return useQuery({ queryKey: ['profiles'], queryFn: () => api.profiles.list() })
+}
+
+function useProfileMutation<TInput, TResult>(fn: (input: TInput) => Promise<TResult>) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['profiles'] })
+  })
+}
+
+export function useCreateProfile() {
+  return useProfileMutation((name: string) => api.profiles.create(name))
+}
+
+export function useRenameProfile() {
+  return useProfileMutation((input: { id: string; name: string }) =>
+    api.profiles.rename(input.id, input.name)
+  )
+}
+
+export function useDeleteProfile() {
+  return useProfileMutation((id: string) => api.profiles.delete(id))
+}
+
+/**
+ * Nach dem Wechsel lädt die Oberfläche komplett neu, statt nur den Cache zu leeren: jede Seite,
+ * jeder gewählte Zeitraum und jeder Zwischenstand beginnt so frisch mit den Daten der anderen
+ * Person - nichts vom vorigen Profil kann durchscheinen.
+ */
+export function useSwitchProfile() {
+  return useMutation({
+    mutationFn: (id: string) => api.profiles.switchTo(id),
+    onSuccess: () => window.location.reload()
+  })
+}

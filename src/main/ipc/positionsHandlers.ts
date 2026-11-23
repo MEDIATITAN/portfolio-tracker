@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { handle } from './handle'
 import * as positionsRepo from '../db/positionsRepo'
 import * as snapshotsRepo from '../db/snapshotsRepo'
 import * as cashBalanceRepo from '../db/cashBalanceRepo'
@@ -18,18 +18,18 @@ import type {
 } from '../../shared/types'
 
 export function registerPositionsHandlers(): void {
-  ipcMain.handle('positions:list', () => positionsRepo.listPositions())
+  handle('positions:list', () => positionsRepo.listPositions())
   // Der Kontostands-Verlauf gehört zu den Positionen: er wird in deren Liste aufgeklappt.
-  ipcMain.handle('cashHistory:list', () => cashBalanceRepo.listAll())
+  handle('cashHistory:list', () => cashBalanceRepo.listAll())
 
-  ipcMain.handle('positions:create', async (_event, input: NewPosition) => {
+  handle('positions:create', async (_event, input: NewPosition) => {
     const position = positionsRepo.createPosition(input)
     cashBalanceService.recordBalanceChange(null, position, 'MANUAL')
     await priceService.ensureHistoricalData(position)
     return position
   })
 
-  ipcMain.handle('positions:update', async (_event, input: PositionUpdate) => {
+  handle('positions:update', async (_event, input: PositionUpdate) => {
     // Den alten Stand VOR dem Schreiben lesen: nur so lässt sich erkennen, ob sich am Kontostand
     // eines Guthabens etwas geändert hat oder nur Name oder Notiz.
     const before = positionsRepo.getPositionById(input.id)
@@ -39,7 +39,7 @@ export function registerPositionsHandlers(): void {
     return position
   })
 
-  ipcMain.handle('positions:delete', (_event, id: number) => {
+  handle('positions:delete', (_event, id: number) => {
     positionsRepo.deletePosition(id)
   })
 
@@ -47,12 +47,12 @@ export function registerPositionsHandlers(): void {
   // Snapshot-Verlauf (sonst würde "Vermögen über Zeit" weiter alte, jetzt bedeutungslose reale
   // Werte zeigen - gleiche Überlegung wie beim "Zurücksetzen"-Button, hier nur zusätzlich mit
   // Löschen der Positionen selbst).
-  ipcMain.handle('positions:deleteAll', () => {
+  handle('positions:deleteAll', () => {
     positionsRepo.deleteAllPositions()
     snapshotsRepo.deleteAllSnapshots()
   })
 
-  ipcMain.handle('positions:lookupSymbol', async (_event, kind: DisplayClass, query: string) => {
+  handle('positions:lookupSymbol', async (_event, kind: DisplayClass, query: string) => {
     // Anleihen: onvista findet sie über WKN, ISIN oder Namen. Yahoo führt einzelne Anleihen
     // überhaupt nicht - weder über ISIN noch über die Kürzel der deutschen Börsenplätze.
     if (kind === 'BOND') {
@@ -91,7 +91,7 @@ export function registerPositionsHandlers(): void {
     return []
   })
 
-  ipcMain.handle('positions:getAssetProfile', (_event, identifier: string) =>
+  handle('positions:getAssetProfile', (_event, identifier: string) =>
     yahooService.getAssetProfile(identifier)
   )
 }

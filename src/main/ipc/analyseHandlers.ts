@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { handle } from './handle'
 import * as benchmarkService from '../services/benchmarkService'
 import * as etfCompositionService from '../services/etfCompositionService'
 import * as priceService from '../services/priceService'
@@ -26,14 +26,14 @@ function assertValidModel(input: NewCustomBenchmarkModel): void {
 }
 
 export function registerAnalyseHandlers(): void {
-  ipcMain.handle('analyse:benchmarks', (_event, universe: BenchmarkUniverse, fromDate: string) =>
+  handle('analyse:benchmarks', (_event, universe: BenchmarkUniverse, fromDate: string) =>
     benchmarkService.getBenchmarkSeries(universe, fromDate)
   )
 
   // Der langsame Weg: Vergleichsreihen holen und die eigenen Kursreihen so weit verlängern, wie
   // die Positionen tatsächlich gehalten wurden. Kann je nach Lücken eine Minute dauern, deshalb
   // mit Fortschrittsmeldungen - dasselbe Muster wie beim Zurücksetzen der Kurse.
-  ipcMain.handle(
+  handle(
     'analyse:prepare',
     async (event, universe: BenchmarkUniverse, fromDate: string): Promise<BenchmarkData> => {
       const report = (progress: AnalysisPrepareProgress): void => {
@@ -69,19 +69,17 @@ export function registerAnalyseHandlers(): void {
     }
   )
 
-  ipcMain.handle('analyse:models:list', () => customModelRepo.listCustomModels())
+  handle('analyse:models:list', () => customModelRepo.listCustomModels())
 
-  ipcMain.handle('analyse:models:create', (_event, input: NewCustomBenchmarkModel) => {
+  handle('analyse:models:create', (_event, input: NewCustomBenchmarkModel) => {
     assertValidModel(input)
     return customModelRepo.createCustomModel(input)
   })
 
-  ipcMain.handle('analyse:models:update', (_event, input: CustomBenchmarkModelUpdate) => {
+  handle('analyse:models:update', (_event, input: CustomBenchmarkModelUpdate) => {
     assertValidModel(input)
     return customModelRepo.updateCustomModel(input)
   })
 
-  ipcMain.handle('analyse:models:delete', (_event, id: number) =>
-    customModelRepo.deleteCustomModel(id)
-  )
+  handle('analyse:models:delete', (_event, id: number) => customModelRepo.deleteCustomModel(id))
 }

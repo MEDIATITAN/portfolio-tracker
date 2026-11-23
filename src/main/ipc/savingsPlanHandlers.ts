@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { handle } from './handle'
 import * as savingsPlanRepo from '../db/savingsPlanRepo'
 import * as savingsPlanService from '../services/savingsPlanService'
 import * as priceService from '../services/priceService'
@@ -14,21 +14,19 @@ async function bookDueExecutions(): Promise<number> {
 }
 
 export function registerSavingsPlanHandlers(): void {
-  ipcMain.handle('savingsPlans:list', () => savingsPlanService.listWithStats())
-  ipcMain.handle('savingsPlans:create', async (_event, input: NewSavingsPlan) => {
+  handle('savingsPlans:list', () => savingsPlanService.listWithStats())
+  handle('savingsPlans:create', async (_event, input: NewSavingsPlan) => {
     const plan = savingsPlanRepo.createSavingsPlan(input)
     // Direkt nachbuchen: legt jemand einen Plan mit Startdatum in der Vergangenheit an, soll er
     // seine Ausführungen sofort sehen und nicht erst beim nächsten Kursabruf.
     await bookDueExecutions()
     return plan
   })
-  ipcMain.handle('savingsPlans:update', async (_event, input: SavingsPlanUpdate) => {
+  handle('savingsPlans:update', async (_event, input: SavingsPlanUpdate) => {
     const plan = savingsPlanRepo.updateSavingsPlan(input)
     await bookDueExecutions()
     return plan
   })
-  ipcMain.handle('savingsPlans:delete', (_event, id: number) =>
-    savingsPlanRepo.deleteSavingsPlan(id)
-  )
-  ipcMain.handle('savingsPlans:run', () => bookDueExecutions())
+  handle('savingsPlans:delete', (_event, id: number) => savingsPlanRepo.deleteSavingsPlan(id))
+  handle('savingsPlans:run', () => bookDueExecutions())
 }

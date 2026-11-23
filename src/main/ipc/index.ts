@@ -7,6 +7,7 @@ import { registerBudgetHandlers } from './budgetHandlers'
 import { registerSavingsPlanHandlers } from './savingsPlanHandlers'
 import { registerTransactionsHandlers } from './transactionsHandlers'
 import { registerAnalyseHandlers } from './analyseHandlers'
+import { registerProfilesHandlers } from './profilesHandlers'
 
 export function registerIpcHandlers(): void {
   registerPositionsHandlers()
@@ -18,4 +19,5 @@ export function registerIpcHandlers(): void {
   registerSavingsPlanHandlers()
   registerTransactionsHandlers()
   registerAnalyseHandlers()
+  registerProfilesHandlers()
 }

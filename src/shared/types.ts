@@ -386,6 +386,17 @@ export interface AnalysisPrepareProgress {
   label: string
 }
 
+/** Eine Person, deren Vermögen die App führt - jede mit eigener Datenbank. */
+export interface Profile {
+  id: string
+  name: string
+}
+
+export interface ProfileList {
+  activeId: string
+  profiles: Profile[]
+}
+
 export interface PortfolioApi {
   positions: {
     list(): Promise<Position[]>
@@ -426,6 +437,14 @@ export interface PortfolioApi {
   cashHistory: {
     /** Der Verlauf aller Kontostände, chronologisch - je Konto gruppiert wird im Renderer. */
     list(): Promise<CashBalanceEntry[]>
+  }
+  profiles: {
+    list(): Promise<ProfileList>
+    create(name: string): Promise<Profile>
+    rename(id: string, name: string): Promise<void>
+    delete(id: string): Promise<void>
+    /** Öffnet die Datenbank dieses Profils; danach lädt die Oberfläche neu. */
+    switchTo(id: string): Promise<void>
   }
   budget: {
     list(): Promise<BudgetItem[]>

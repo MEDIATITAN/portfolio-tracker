@@ -3,6 +3,7 @@ import type { ClassFilter, Page } from '../../lib/navigation'
 import { ASSET_CLASS_LABELS } from '../../lib/format'
 import { DISPLAY_CLASS_ORDER } from '@shared/displayClass'
 import { useTheme } from '../../lib/ThemeContext'
+import { ProfileSwitcher } from './ProfileSwitcher'
 
 /** Waage - Einnahmen gegen Ausgaben. */
 function BudgetIcon(): React.JSX.Element {
@@ -175,9 +176,7 @@ export function Sidebar({
 
   return (
     <aside className="flex w-56 shrink-0 flex-col bg-slate-900 text-slate-300">
-      <div className="px-4 py-4">
-        <span className="text-sm font-semibold text-white">Portfolio-Tracker</span>
-      </div>
+      <ProfileSwitcher />
       <nav className="flex-1 overflow-y-auto px-2 pb-4">
         <div
           className={`flex items-center gap-1 rounded-md text-sm font-medium ${

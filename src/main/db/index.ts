@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { app } from 'electron'
 import { join } from 'path'
 import { SCHEMA_SQL, SEED_SETTINGS } from './schema'
+import { activeProfileFile } from './profileRegistry'
 
 let db: DatabaseSync | null = null
 
@@ -22,7 +23,7 @@ function ensureColumn(
 
 export function getDb(): DatabaseSync {
   if (!db) {
-    const dbPath = join(app.getPath('userData'), 'portfolio.db')
+    const dbPath = join(app.getPath('userData'), activeProfileFile())
     const database = new DatabaseSync(dbPath)
     database.exec('PRAGMA journal_mode = WAL')
     database.exec('PRAGMA foreign_keys = ON')
@@ -54,4 +55,12 @@ export function getDb(): DatabaseSync {
     db = database
   }
   return db
+}
+
+/** Schließt die Datenbank des offenen Profils; der nächste getDb()-Aufruf öffnet die des dann aktiven. */
+export function closeDb(): void {
+  if (db) {
+    db.close()
+    db = null
+  }
 }
