@@ -34,7 +34,7 @@ async function resolveSecurity(
 
     const isinMatch = await resolveToTicker('ID_ISIN', isin)
     if (isinMatch) {
-      const bySymbol = await yahooService.searchSymbols(isinMatch.ticker, 'STOCK_ETF')
+      const bySymbol = await wknService.searchResolved(isinMatch, 'STOCK_ETF')
       if (bySymbol.length > 0) return bySymbol[0]
     }
   }
@@ -42,7 +42,7 @@ async function resolveSecurity(
   if (wkn) {
     const wknMatch = await wknService.resolveWknToTicker(wkn)
     if (wknMatch) {
-      const bySymbol = await yahooService.searchSymbols(wknMatch.ticker, 'STOCK_ETF')
+      const bySymbol = await wknService.searchResolved(wknMatch, 'STOCK_ETF')
       if (bySymbol.length > 0) return bySymbol[0]
     }
   }

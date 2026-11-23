@@ -82,10 +82,7 @@ export function registerPositionsHandlers(): void {
       // Ticker/Firmenname auflösen und damit erneut bei Yahoo suchen - Yahoo kennt WKNs selbst nicht.
       const resolved = await wknService.resolveWknToTicker(query.trim())
       if (!resolved) return []
-      const byTicker = await yahooService.searchSymbols(resolved.ticker, assetClass)
-      const results: SymbolSearchResult[] =
-        byTicker.length > 0 ? byTicker : await yahooService.searchSymbols(resolved.name, assetClass)
-      return results
+      return wknService.searchResolved(resolved, assetClass)
     }
 
     return []
