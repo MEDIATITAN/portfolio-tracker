@@ -1,6 +1,6 @@
 {
   "name": "portfolio-tracker",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Lokaler Portfolio-Tracker für Aktien, Krypto, Rohstoffe und Cash",
   "main": "./out/main/index.js",
   "author": "MEDIATITAN",
