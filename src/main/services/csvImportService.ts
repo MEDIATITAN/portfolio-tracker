@@ -40,11 +40,8 @@ async function resolveSecurity(
   }
 
   if (wkn) {
-    const wknMatch = await wknService.resolveWknToTicker(wkn)
-    if (wknMatch) {
-      const bySymbol = await wknService.searchResolved(wknMatch, 'STOCK_ETF')
-      if (bySymbol.length > 0) return bySymbol[0]
-    }
+    const byWkn = await wknService.searchByWkn(wkn, 'STOCK_ETF')
+    if (byWkn.length > 0) return byWkn[0]
   }
 
   const byName = await yahooService.searchSymbols(name, 'STOCK_ETF')

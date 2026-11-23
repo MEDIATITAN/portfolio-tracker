@@ -1,5 +1,6 @@
 import { resolveToTicker, yahooSymbolFor, type OpenFigiEntry } from './openFigiService'
 import * as yahooService from './yahooService'
+import * as onvistaService from './onvistaService'
 import type { AssetClass, SymbolSearchResult } from '../../shared/types'
 
 const WKN_PATTERN = /^[A-Z0-9]{6}$/i
@@ -36,4 +37,22 @@ export async function searchResolved(
   )
   if (byTicker.length > 0) return byTicker
   return yahooService.searchSymbols(match.name, assetClass)
+}
+
+/**
+ * Sucht einen Wert über seine WKN. Zuerst über die ISIN (WKN -> ISIN bei onvista -> Yahoo): das
+ * ist eindeutig und findet auch Zertifikate und ETPs, die OpenFIGI nur unter Kürzeln kennt, mit
+ * denen Yahoo nichts anfangen kann. Erst wenn das nichts liefert, der Weg über OpenFIGI.
+ */
+export async function searchByWkn(
+  wkn: string,
+  assetClass: AssetClass
+): Promise<SymbolSearchResult[]> {
+  const isin = await onvistaService.isinForWkn(wkn).catch(() => null)
+  if (isin) {
+    const hits = await yahooService.searchSymbols(isin, assetClass)
+    if (hits.length > 0) return hits
+  }
+  const resolved = await resolveWknToTicker(wkn)
+  return resolved ? searchResolved(resolved, assetClass) : []
 }

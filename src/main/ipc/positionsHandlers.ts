@@ -78,11 +78,9 @@ export function registerPositionsHandlers(): void {
       const direct = await yahooService.searchSymbols(query, assetClass)
       if (direct.length > 0 || !wknService.looksLikeWkn(query)) return direct
 
-      // Direkte Suche (Ticker/Name) erfolglos, sieht aber wie eine WKN aus: über OpenFIGI in
-      // Ticker/Firmenname auflösen und damit erneut bei Yahoo suchen - Yahoo kennt WKNs selbst nicht.
-      const resolved = await wknService.resolveWknToTicker(query.trim())
-      if (!resolved) return []
-      return wknService.searchResolved(resolved, assetClass)
+      // Direkte Suche (Ticker/Name) erfolglos, sieht aber wie eine WKN aus: über ISIN bzw. OpenFIGI
+      // auflösen und damit erneut bei Yahoo suchen - Yahoo kennt WKNs selbst nicht.
+      return wknService.searchByWkn(query.trim(), assetClass)
     }
 
     return []

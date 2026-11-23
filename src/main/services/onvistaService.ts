@@ -242,6 +242,20 @@ async function searchBondsRaw(query: string): Promise<BondHit[]> {
     .map((h) => ({ isin: h.isin, wkn: h.wkn, name: h.name }))
 }
 
+/**
+ * Die ISIN zu einer WKN, gleich welcher Wertpapierart. Yahoo kennt keine WKNs, findet aber viele
+ * Werte über die ISIN - etwa Krypto-ETPs wie 21Shares Solana (A3GSS0 -> CH1114873776 -> ASOL.SW),
+ * die über Ticker oder Namen nicht auffindbar sind.
+ */
+export async function isinForWkn(wkn: string): Promise<string | null> {
+  const wanted = wkn.trim().toUpperCase()
+  const data = (await getJson(
+    `${BASE}/instruments/search?searchValue=${encodeURIComponent(wanted)}&limit=5`
+  )) as { list?: BondSearchHit[] } | null
+  const hit = (data?.list ?? []).find((h) => h.wkn === wanted && typeof h.isin === 'string')
+  return hit ? (hit.isin as string) : null
+}
+
 /** Sucht Anleihen über WKN, ISIN oder Namen. WKN und ISIN findet die Suche direkt und exakt. */
 export async function searchBonds(query: string): Promise<BondHit[]> {
   const hits = await searchBondsRaw(query)
